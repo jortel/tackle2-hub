@@ -251,7 +251,7 @@ func (h TaskHandler) Content(ctx *gin.Context) {
 		h.getFailed(ctx, result.Error)
 		return
 	}
-	h.content(ctx, &m.Bucket)
+	h.content(ctx, &m.BucketOwner)
 }
 
 // Upload godoc
@@ -271,7 +271,7 @@ func (h TaskHandler) Upload(ctx *gin.Context) {
 		return
 	}
 
-	h.upload(ctx, &m.Bucket)
+	h.upload(ctx, &m.BucketOwner)
 }
 
 // CreateReport godoc
@@ -336,19 +336,21 @@ func (h TaskHandler) UpdateReport(ctx *gin.Context) {
 // Task REST resource.
 type Task struct {
 	Resource
-	Name       string      `json:"name"`
-	Locator    string      `json:"locator"`
-	Isolated   bool        `json:"isolated,omitempty"`
-	Addon      string      `json:"addon,omitempty"`
-	Data       interface{} `json:"data" swaggertype:"object"`
-	Status     string      `json:"status"`
-	Image      string      `json:"image,omitempty"`
-	Bucket     string      `json:"bucket"`
-	Started    *time.Time  `json:"started,omitempty"`
-	Terminated *time.Time  `json:"terminated,omitempty"`
-	Error      string      `json:"error,omitempty"`
-	Job        string      `json:"job,omitempty"`
-	Report     *TaskReport `json:"report,omitempty"`
+	Name        string      `json:"name"`
+	Locator     string      `json:"locator"`
+	Isolated    bool        `json:"isolated,omitempty"`
+	Addon       string      `json:"addon,omitempty"`
+	Data        interface{} `json:"data" swaggertype:"object"`
+	Application *Ref        `json:"application"`
+	Status      string      `json:"status"`
+	Image       string      `json:"image,omitempty"`
+	Bucket      string      `json:"bucket"`
+	Purged      bool        `json:"purged,omitempty"`
+	Started     *time.Time  `json:"started,omitempty"`
+	Terminated  *time.Time  `json:"terminated,omitempty"`
+	Error       string      `json:"error,omitempty"`
+	Job         string      `json:"job,omitempty"`
+	Report      *TaskReport `json:"report,omitempty"`
 }
 
 //
@@ -360,7 +362,9 @@ func (r *Task) With(m *model.Task) {
 	r.Addon = m.Addon
 	r.Locator = m.Locator
 	r.Isolated = m.Isolated
-	r.Bucket = m.Bucket.Path
+	r.Application = r.refPtr(m.ApplicationID, m.Application)
+	r.Bucket = m.Bucket
+	r.Purged = m.Purged
 	r.Status = m.Status
 	r.Started = m.Started
 	r.Terminated = m.Terminated
@@ -378,10 +382,11 @@ func (r *Task) With(m *model.Task) {
 // Model builds a model.
 func (r *Task) Model() (m *model.Task) {
 	m = &model.Task{
-		Name:     r.Name,
-		Addon:    r.Addon,
-		Locator:  r.Locator,
-		Isolated: r.Isolated,
+		Name:          r.Name,
+		Addon:         r.Addon,
+		Locator:       r.Locator,
+		Isolated:      r.Isolated,
+		ApplicationID: r.idPtr(r.Application),
 	}
 	m.Data, _ = json.Marshal(r.Data)
 	m.ID = r.ID
