@@ -1,4 +1,3 @@
-#!/bin/bash
 
 host="localhost:8080"
 
@@ -9,8 +8,6 @@ host="localhost:8080"
 dir=`dirname $0`
 cd ${dir}
 
-./tag.sh
-./identity.sh
 ./job-function.sh
 ./stakeholder-group.sh
 ./stakeholder.sh
