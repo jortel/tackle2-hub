@@ -11,6 +11,7 @@ type TackleSettings struct {
 	Hub
 	Addon
 	Auth
+	Metrics
 }
 
 func (r *TackleSettings) Load() (err error) {

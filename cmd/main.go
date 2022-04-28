@@ -11,19 +11,23 @@ import (
 	"github.com/konveyor/tackle2-hub/api"
 	"github.com/konveyor/tackle2-hub/auth"
 	"github.com/konveyor/tackle2-hub/importer"
-	"github.com/konveyor/tackle2-hub/k8s"
 	crd "github.com/konveyor/tackle2-hub/k8s/api"
 	"github.com/konveyor/tackle2-hub/model"
 	"github.com/konveyor/tackle2-hub/settings"
 	"github.com/konveyor/tackle2-hub/tasking"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 	"io/ioutil"
 	"k8s.io/client-go/kubernetes/scheme"
+	"net/http"
 	"os"
 	"path"
 	"reflect"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 	"strings"
 	"syscall"
 )
@@ -43,8 +47,8 @@ func init() {
 }
 
 //
-// Setup the DB and models.
-func Setup() (db *gorm.DB, err error) {
+// setupModels
+func setupModels() (db *gorm.DB, err error) {
 	db, err = open()
 	if err != nil {
 		err = liberr.Wrap(err)
@@ -54,7 +58,6 @@ func Setup() (db *gorm.DB, err error) {
 		log.Info("Database already seeded, skipping.")
 		return
 	}
-
 	var sqlDB *sql.DB
 	sqlDB, err = db.DB()
 	if err != nil {
@@ -80,7 +83,7 @@ func Setup() (db *gorm.DB, err error) {
 }
 
 //
-// Open and automigrate the DB.
+// open and migrate the DB.
 func open() (db *gorm.DB, err error) {
 	db, err = gorm.Open(
 		sqlite.Open(fmt.Sprintf(ConnectionString, Settings.DB.Path)),
@@ -103,7 +106,7 @@ func open() (db *gorm.DB, err error) {
 }
 
 //
-// Check whether the DB has been seeded.
+// seeded returns if the DB has been seeded.
 func seeded(db *gorm.DB) (seeded bool) {
 	result := db.Find(&model.Setting{Key: ".hub.db.seeded"})
 	return result.RowsAffected > 0
@@ -114,61 +117,6 @@ func seeded(db *gorm.DB) (seeded bool) {
 func buildScheme() (err error) {
 	err = crd.AddToScheme(scheme.Scheme)
 	return
-}
-
-//
-// main.
-func main() {
-	log.Info("Started", "settings", Settings)
-	var err error
-	defer func() {
-		if err != nil {
-			log.Trace(err)
-		}
-	}()
-	syscall.Umask(0)
-	err = buildScheme()
-	if err != nil {
-		return
-	}
-	client, err := k8s.NewClient()
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	db, err := Setup()
-	if err != nil {
-		panic(err)
-	}
-
-	var provider auth.Provider
-	if settings.Settings.Auth.Required {
-		k := auth.NewKeycloak(
-			settings.Settings.Auth.Keycloak.Host,
-			settings.Settings.Auth.Keycloak.Realm,
-			settings.Settings.Auth.Keycloak.ClientID,
-			settings.Settings.Auth.Keycloak.ClientSecret)
-		provider = &k
-	} else {
-		provider = &auth.NoAuth{}
-	}
-	router := gin.Default()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
-	for _, h := range api.All() {
-		h.With(db, client, provider)
-		h.AddRoutes(router)
-	}
-	taskManager := tasking.Manager{
-		Client: client,
-		DB:     db,
-	}
-	taskManager.Run(context.Background())
-	importManager := importer.Manager{
-		DB: db,
-	}
-	importManager.Run(context.Background())
-	err = router.Run()
 }
 
 //
@@ -222,4 +170,100 @@ func seed(db *gorm.DB, models []interface{}) (err error) {
 	}
 	log.Info("Database seeded.")
 	return
+}
+
+//
+// addonManager
+func addonManager() (mgr manager.Manager, err error) {
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		_ = http.ListenAndServe(":2112", nil)
+	}()
+	cfg, err := config.GetConfig()
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	mgr, err = manager.New(
+		cfg,
+		manager.Options{
+			MetricsBindAddress: Settings.Metrics.Address(),
+		})
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	return
+}
+
+//
+// main.
+func main() {
+	syscall.Umask(0)
+	log.Info("Started", "settings", Settings)
+	var err error
+	defer func() {
+		if err != nil {
+			log.Trace(err)
+		}
+	}()
+	//
+	// Addon controller
+	err = buildScheme()
+	if err != nil {
+		return
+	}
+	addonManager, err := addonManager()
+	if err != nil {
+		return
+	}
+	go func() {
+		err = addonManager.Start(signals.SetupSignalHandler())
+		if err != nil {
+			err = liberr.Wrap(err)
+			return
+		}
+	}()
+	//
+	// Models
+	db, err := setupModels()
+	if err != nil {
+		panic(err)
+	}
+	//
+	// Auth provider.
+	var provider auth.Provider
+	if settings.Settings.Auth.Required {
+		k := auth.NewKeycloak(
+			settings.Settings.Auth.Keycloak.Host,
+			settings.Settings.Auth.Keycloak.Realm,
+			settings.Settings.Auth.Keycloak.ClientID,
+			settings.Settings.Auth.Keycloak.ClientSecret)
+		provider = &k
+	} else {
+		provider = &auth.NoAuth{}
+	}
+	//
+	// Webserver API.
+	router := gin.Default()
+	router.Use(gin.Logger())
+	router.Use(gin.Recovery())
+	for _, h := range api.All() {
+		h.With(db, addonManager.GetClient(), provider)
+		h.AddRoutes(router)
+	}
+	//
+	// Task manager.
+	taskManager := tasking.Manager{
+		Client: addonManager.GetClient(),
+		DB:     db,
+	}
+	taskManager.Run(context.Background())
+	importManager := importer.Manager{
+		DB: db,
+	}
+	//
+	// Application import.
+	importManager.Run(context.Background())
+	err = router.Run()
 }
