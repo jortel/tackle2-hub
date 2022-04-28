@@ -26,7 +26,9 @@ import (
 // Mount specification.
 type Mount struct {
 	Name  string `json:"name"`
-	Claim string `json:"claim"`
+	Claim string `json:"claim,omitempty"`
+	Capacity *core.ResourceRequirements `json:"capacity,omitempty"`
+	StorageClass string `json:"storageClass,omitempty"`
 }
 
 //
