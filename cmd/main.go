@@ -10,6 +10,7 @@ import (
 	"github.com/konveyor/controller/pkg/logging"
 	"github.com/konveyor/tackle2-hub/api"
 	"github.com/konveyor/tackle2-hub/auth"
+	"github.com/konveyor/tackle2-hub/controller"
 	"github.com/konveyor/tackle2-hub/importer"
 	crd "github.com/konveyor/tackle2-hub/k8s/api"
 	"github.com/konveyor/tackle2-hub/model"
@@ -189,6 +190,11 @@ func addonManager() (mgr manager.Manager, err error) {
 		manager.Options{
 			MetricsBindAddress: Settings.Metrics.Address(),
 		})
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	err = controller.Add(mgr)
 	if err != nil {
 		err = liberr.Wrap(err)
 		return
