@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	k8s "sigs.k8s.io/controller-runtime/pkg/client"
 	"strconv"
 	"time"
 )
@@ -24,13 +24,13 @@ type BaseHandler struct {
 	// DB
 	DB *gorm.DB
 	// k8s Client
-	Client client.Client
+	Client k8s.Client
 	// Auth provider
 	AuthProvider auth.Provider
 }
 
 // With database and k8s client.
-func (h *BaseHandler) With(db *gorm.DB, client client.Client, provider auth.Provider) {
+func (h *BaseHandler) With(db *gorm.DB, client k8s.Client, provider auth.Provider) {
 	h.DB = db.Debug()
 	h.Client = client
 	h.AuthProvider = provider

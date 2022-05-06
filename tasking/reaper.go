@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	k8s "sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
 	"time"
 )
@@ -29,7 +29,7 @@ type TaskReaper struct {
 	// DB
 	DB *gorm.DB
 	// k8s client.
-	Client client.Client
+	Client k8s.Client
 }
 
 //

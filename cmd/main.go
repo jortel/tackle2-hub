@@ -48,8 +48,8 @@ func init() {
 }
 
 //
-// setupModels
-func setupModels() (db *gorm.DB, err error) {
+// buildModel
+func buildModel() (db *gorm.DB, err error) {
 	db, err = open()
 	if err != nil {
 		err = liberr.Wrap(err)
@@ -140,7 +140,6 @@ func seed(db *gorm.DB, models []interface{}) (err error) {
 				err = liberr.Wrap(err)
 				return
 			}
-
 			var unmarshalled []map[string]interface{}
 			err = json.Unmarshal(jsonBytes, &unmarshalled)
 			if err != nil {
@@ -161,7 +160,6 @@ func seed(db *gorm.DB, models []interface{}) (err error) {
 			return
 		}
 	}
-
 	seeded, _ := json.Marshal(true)
 	setting := model.Setting{Key: ".hub.db.seeded", Value: seeded}
 	result := db.Create(&setting)
@@ -175,7 +173,7 @@ func seed(db *gorm.DB, models []interface{}) (err error) {
 
 //
 // addonManager
-func addonManager() (mgr manager.Manager, err error) {
+func addonManager(db *gorm.DB) (mgr manager.Manager, err error) {
 	http.Handle("/metrics", promhttp.Handler())
 	go func() {
 		_ = http.ListenAndServe(":2112", nil)
@@ -194,7 +192,7 @@ func addonManager() (mgr manager.Manager, err error) {
 		err = liberr.Wrap(err)
 		return
 	}
-	err = controller.Add(mgr)
+	err = controller.Add(mgr, db)
 	if err != nil {
 		err = liberr.Wrap(err)
 		return
@@ -214,12 +212,18 @@ func main() {
 		}
 	}()
 	//
+	// Models
+	db, err := buildModel()
+	if err != nil {
+		panic(err)
+	}
+	//
 	// Addon controller
 	err = buildScheme()
 	if err != nil {
 		return
 	}
-	addonManager, err := addonManager()
+	addonManager, err := addonManager(db)
 	if err != nil {
 		return
 	}
@@ -230,12 +234,6 @@ func main() {
 			return
 		}
 	}()
-	//
-	// Models
-	db, err := setupModels()
-	if err != nil {
-		panic(err)
-	}
 	//
 	// Auth provider.
 	var provider auth.Provider
