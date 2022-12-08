@@ -519,7 +519,7 @@ func (r *Task) container(addon *crd.Addon, secret *core.Secret) (container core.
 	container = core.Container{
 		Name:            "main",
 		Image:           r.Image,
-		ImagePullPolicy: core.PullAlways,
+		ImagePullPolicy: Settings.Hub.Task.Image.Policy,
 		WorkingDir:      Settings.Addon.Path.WorkingDir,
 		Resources:       addon.Spec.Resources,
 		Env: []core.EnvVar{

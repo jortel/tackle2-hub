@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 )
@@ -27,6 +28,25 @@ func (r *TackleSettings) Load() (err error) {
 	if err != nil {
 		return
 	}
+	return
+}
+
+//
+// SettingError used to report invalid settings.
+type SettingError struct {
+	Name   string
+	Reason string
+}
+
+func (e *SettingError) Error() (s string) {
+	s = fmt.Sprintf(
+		"Setting %s not valid. %s",
+		e.Name,
+		e.Reason)
+	return
+}
+func (e *SettingError) Is(err error) (matched bool) {
+	_, matched = err.(*SettingError)
 	return
 }
 

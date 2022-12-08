@@ -1,6 +1,7 @@
 package settings
 
 import (
+	core "k8s.io/api/core/v1"
 	"os"
 	"strconv"
 )
@@ -20,6 +21,7 @@ const (
 	EnvFrequencyTask     = "FREQUENCY_TASK"
 	EnvFrequencyReaper   = "FREQUENCY_REAPER"
 	EnvFrequencyVolume   = "FREQUENCY_VOLUME"
+	EnvAddonImagePolicy  = "ADDON_IMAGE_PULL_POLICY"
 )
 
 type Hub struct {
@@ -47,6 +49,9 @@ type Hub struct {
 			Created   int
 			Succeeded int
 			Failed    int
+		}
+		Image struct {
+			Policy core.PullPolicy
 		}
 	}
 	// Frequency
@@ -135,6 +140,20 @@ func (r *Hub) Load() (err error) {
 		r.Frequency.Volume = n
 	} else {
 		r.Frequency.Volume = 5 // 5 minute.
+	}
+	s, found = os.LookupEnv(EnvAddonImagePolicy)
+	if found {
+		p := core.PullPolicy(s)
+		switch p {
+		case core.PullAlways,
+			core.PullIfNotPresent,
+			core.PullNever:
+			r.Task.Image.Policy = p
+		default:
+			panic(&SettingError{Name: EnvAddonImagePolicy})
+		}
+	} else {
+		r.Task.Image.Policy = core.PullAlways
 	}
 
 	return
