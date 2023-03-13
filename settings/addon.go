@@ -9,6 +9,8 @@ import (
 const (
 	EnvAddonWorkingDir = "ADDON_WORKING_DIR"
 	EnvHubBaseURL      = "HUB_BASE_URL"
+	EnvHubTlsEnabled   = "HUB_TLS_ENABLED"
+	EnvHubTlsCA        = "HUB_TLS_CA"
 	EnvHubToken        = "TOKEN"
 	EnvTask            = "TASK"
 )
@@ -22,6 +24,11 @@ type Addon struct {
 		URL string
 		// Token for the hub API.
 		Token string
+		// API TLS settings.
+		TLS struct {
+			Enabled bool
+			CA      string
+		}
 	}
 	// Path.
 	Path struct {
@@ -42,7 +49,7 @@ func (r *Addon) Load() (err error) {
 	if err != nil {
 		panic(err)
 	}
-	r.Hub.Token, found = os.LookupEnv(EnvHubToken)
+	r.Hub.Token, _ = os.LookupEnv(EnvHubToken)
 	r.Path.WorkingDir, found = os.LookupEnv(EnvAddonWorkingDir)
 	if !found {
 		r.Path.WorkingDir = "/tmp"
@@ -50,6 +57,10 @@ func (r *Addon) Load() (err error) {
 	if s, found := os.LookupEnv(EnvTask); found {
 		r.Task, _ = strconv.Atoi(s)
 	}
+	if s, found := os.LookupEnv(EnvHubTlsEnabled); found {
+		r.Hub.TLS.Enabled, _ = strconv.ParseBool(s)
+	}
+	r.Hub.TLS.CA, _ = os.LookupEnv(EnvHubTlsCA)
 
 	return
 }

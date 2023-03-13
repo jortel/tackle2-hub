@@ -5,6 +5,8 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"github.com/konveyor/tackle2-hub/api"
 	"github.com/konveyor/tackle2-hub/auth"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -663,6 +666,22 @@ func (r *Client) buildTransport() (err error) {
 		IdleConnTimeout:       10 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+	}
+	TLS := Settings.Addon.Hub.TLS
+	if !TLS.Enabled {
+		return
+	}
+	pool := x509.NewCertPool()
+	ca, err := ioutil.ReadFile(TLS.CA)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	pool.AppendCertsFromPEM(ca)
+	r.transport = &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs: pool,
+		},
 	}
 	return
 }
