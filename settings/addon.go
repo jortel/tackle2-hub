@@ -11,6 +11,7 @@ const (
 	EnvHubBaseURL      = "HUB_BASE_URL"
 	EnvHubToken        = "TOKEN"
 	EnvTask            = "TASK"
+	EnvMaxMemory       = "MAX_MEMORY"
 )
 
 //
@@ -28,7 +29,11 @@ type Addon struct {
 		// Working directory path.
 		WorkingDir string
 	}
-	//
+	// Limit settings.
+	Limit struct {
+		Memory int64
+	}
+	// Task ID.
 	Task int
 }
 
@@ -49,6 +54,9 @@ func (r *Addon) Load() (err error) {
 	}
 	if s, found := os.LookupEnv(EnvTask); found {
 		r.Task, _ = strconv.Atoi(s)
+	}
+	if s, found := os.LookupEnv(EnvMaxMemory); found {
+		r.Limit.Memory, _ = strconv.ParseInt(s, 10, 64)
 	}
 
 	return

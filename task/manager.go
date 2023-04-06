@@ -553,6 +553,10 @@ func (r *Task) container(addon *crd.Addon, secret *core.Secret) (container core.
 					},
 				},
 			},
+			{
+				Name:  settings.EnvMaxMemory,
+				Value: r.maxMemory(addon),
+			},
 		},
 		VolumeMounts: []core.VolumeMount{
 			{
@@ -569,6 +573,19 @@ func (r *Task) container(addon *crd.Addon, secret *core.Secret) (container core.
 		},
 	}
 
+	return
+}
+
+//
+// maxMemory returns a string representation of the addon pod memory limit..
+func (r *Task) maxMemory(addon *crd.Addon) (s string) {
+	q := addon.Spec.Resources.Limits.Memory()
+	if q == nil {
+		return
+	}
+	if n, b := q.AsInt64(); b {
+		s = strconv.FormatInt(n, 10)
+	}
 	return
 }
 
