@@ -116,21 +116,6 @@ func (f *Field) Resource() (s string) {
 }
 
 //
-// split field name.
-// format: resource.name
-// The resource may be "" (anonymous).
-func (f *Field) split() (relation string, name string) {
-	part := strings.SplitN(f.Field.Value, ".", 2)
-	if len(part) == 2 {
-		relation = part[0]
-		name = part[1]
-	} else {
-		name = part[0]
-	}
-	return
-}
-
-//
 // SQL builds SQL.
 // Returns statement and value (for ?).
 func (f *Field) SQL() (s string, v interface{}) {
@@ -149,7 +134,7 @@ func (f *Field) SQL() (s string, v interface{}) {
 				},
 				" ")
 		default:
-			v = f.value(0)
+			v = AsValue(f.Value[0])
 			s = strings.Join(
 				[]string{
 					name,
@@ -159,18 +144,48 @@ func (f *Field) SQL() (s string, v interface{}) {
 				" ")
 		}
 	default:
-		collection := []interface{}{}
-		for i := range f.Value {
-			collection = append(collection, f.value(i))
+		operator := f.Value.ByKind(OPERATOR)[0]
+		switch operator.Value[0] {
+		case COMMA:
+			// Unsupported.
+		case OR:
+			values := f.Value.ByKind(LITERAL, STR)
+			collection := []interface{}{}
+			for i := range values {
+				v := AsValue(values[i])
+				collection = append(collection, v)
+			}
+			v = collection
+			s = strings.Join(
+				[]string{
+					name,
+					f.operator(),
+					"?",
+				},
+				" ")
 		}
-		v = collection
-		s = strings.Join(
-			[]string{
-				name,
-				f.operator(),
-				"?",
-			},
-			" ")
+	}
+	return
+}
+
+//
+// Relation determines if the field is a relation.
+func (f *Field) Relation() bool {
+	operator := f.Value.ByKind(OPERATOR)
+	return len(operator) > 0 && operator[0].Value[0] == COMMA
+}
+
+//
+// split field name.
+// format: resource.name
+// The resource may be "" (anonymous).
+func (f *Field) split() (relation string, name string) {
+	part := strings.SplitN(f.Field.Value, ".", 2)
+	if len(part) == 2 {
+		relation = part[0]
+		name = part[1]
+	} else {
+		name = part[0]
 	}
 	return
 }
@@ -188,6 +203,11 @@ func (f *Field) operator() (s string) {
 			s = "LIKE"
 		}
 	default:
+		switch len(f.Value) {
+		case 0:
+		case 1:
+		}
+
 		s = "IN"
 	}
 
@@ -195,22 +215,23 @@ func (f *Field) operator() (s string) {
 }
 
 //
-// values returns the true value.
-func (f *Field) value(n int) (v interface{}) {
-	v = f.Value[n].Value
-	switch f.Value[n].Kind {
+// AsValue returns the real value.
+func AsValue(t Token) (object interface{}) {
+	v := t.Value
+	object = v
+	switch t.Kind {
 	case LITERAL:
-		n, err := strconv.Atoi(f.Value[n].Value)
+		n, err := strconv.Atoi(v)
 		if err == nil {
-			v = n
+			object = n
 			break
 		}
-		b, err := strconv.ParseBool(f.Value[n].Value)
+		b, err := strconv.ParseBool(v)
 		if err == nil {
-			v = b
+			object = b
 			break
 		}
-	case STR:
+	default:
 	}
 	return
 }

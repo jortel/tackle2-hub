@@ -1,5 +1,7 @@
 package filter
 
+import "math"
+
 //
 // Parser used to parse the filter.
 type Parser struct {
@@ -79,6 +81,19 @@ type Predicate struct {
 type Value []Token
 
 //
+// ByKind returns values by kind.
+func (r Value) ByKind(kind ...byte) (matched []Token) {
+	for _, t := range r {
+		for _, k := range kind {
+			if t.Kind == k {
+				matched = append(matched, t)
+			}
+		}
+	}
+	return
+}
+
+//
 // List construct.
 // Example: (red|blue|green)
 type List struct {
@@ -101,6 +116,7 @@ func (r *List) Build() (v Value, err error) {
 			switch token.Value {
 			case string(COMMA),
 				string(OR):
+				v = append(v, token)
 			default:
 				err = &BadFilterError{
 					"List: separator must be `,` `|`",
@@ -108,7 +124,35 @@ func (r *List) Build() (v Value, err error) {
 				return
 			}
 		case LPAREN:
+			// ignored.
 		case RPAREN:
+			lastOp := byte(0)
+			for i := range v {
+				if math.Mod(float64(i), 2) == 0 {
+					switch v[i].Kind {
+					case LITERAL,
+						STR:
+					default:
+						err = &BadFilterError{"List: (LITERAL|STR) expected."}
+						return
+					}
+				} else {
+					switch v[i].Kind {
+					case OPERATOR:
+						operator := v[i].Value[0]
+						if lastOp != 0 {
+							if operator != lastOp {
+								err = &BadFilterError{"List: Mixed operator detected."}
+								return
+							}
+						}
+						lastOp = operator
+					default:
+						err = &BadFilterError{"List: OPERATOR expected."}
+						return
+					}
+				}
+			}
 			return
 		default:
 			err = &BadFilterError{
@@ -117,5 +161,6 @@ func (r *List) Build() (v Value, err error) {
 			return
 		}
 	}
+
 	return
 }

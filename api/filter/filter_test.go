@@ -162,7 +162,9 @@ func TestParser(t *testing.T) {
 				Operator: Token{Kind: OPERATOR, Value: string(EQ)},
 				Value: Value{
 					Token{Kind: LITERAL, Value: "one"},
+					Token{Kind: OPERATOR, Value: string(OR)},
 					Token{Kind: LITERAL, Value: "two"},
+					Token{Kind: OPERATOR, Value: string(OR)},
 					Token{Kind: LITERAL, Value: "three"},
 				},
 			},
@@ -173,6 +175,10 @@ func TestParser(t *testing.T) {
 				Value:    Value{Token{Kind: LITERAL, Value: "20"}},
 			},
 		}))
+
+	p = Parser{}
+	f, err = p.Filter("cat=(one|two,three)")
+	g.Expect(err).ToNot(gomega.BeNil())
 }
 
 func TestFilter(t *testing.T) {
@@ -185,7 +191,7 @@ func TestFilter(t *testing.T) {
 	g.Expect(len(filter.predicates)).To(gomega.Equal(0))
 	g.Expect(filter.Empty()).To(gomega.BeTrue())
 
-	filter, err = p.Filter("name:elmer,age:20,category=(a,b,c),name.first:elmer,name.last=fudd")
+	filter, err = p.Filter("name:elmer,age:20,category=(a|b|c),name.first:elmer,name.last=fudd")
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(filter.predicates)).To(gomega.Equal(5))
 	g.Expect(filter.Empty()).To(gomega.BeFalse())
@@ -193,18 +199,34 @@ func TestFilter(t *testing.T) {
 	f, found := filter.Field("name")
 	g.Expect(found).To(gomega.BeTrue())
 	g.Expect(f.Name()).To(gomega.Equal("name"))
-	g.Expect(f.value(0)).To(gomega.Equal("elmer"))
+	g.Expect(AsValue(f.Value[0])).To(gomega.Equal("elmer"))
+
+	f, found = filter.Field("category")
+	g.Expect(found).To(gomega.BeTrue())
+	g.Expect(f.Name()).To(gomega.Equal("category"))
+	g.Expect(f.Value.ByKind(OPERATOR)).To(gomega.Equal([]Token{
+		{Kind: OPERATOR, Value: string(OR)},
+		{Kind: OPERATOR, Value: string(OR)},
+	}))
+	g.Expect(f.Value.ByKind(LITERAL, STR)).To(gomega.Equal([]Token{
+		{Kind: LITERAL, Value: "a"},
+		{Kind: LITERAL, Value: "b"},
+		{Kind: LITERAL, Value: "c"},
+	}))
+	sql, values := f.SQL()
+	g.Expect(sql).To(gomega.Equal("category IN ?"))
+	g.Expect(values).To(gomega.Equal([]interface{}{"a", "b", "c"}))
 
 	f, found = filter.Field("name.first")
 	g.Expect(found).To(gomega.BeTrue())
-	g.Expect(f.value(0)).To(gomega.Equal("elmer"))
+	g.Expect(AsValue(f.Value[0])).To(gomega.Equal("elmer"))
 	f, found = filter.Field("name.last")
 	g.Expect(found).To(gomega.BeTrue())
-	g.Expect(f.value(0)).To(gomega.Equal("fudd"))
+	g.Expect(AsValue(f.Value[0])).To(gomega.Equal("fudd"))
 
 	r := filter.Resource("name")
 	f, found = r.Field("first")
 	g.Expect(found).To(gomega.BeTrue())
 	g.Expect(f.Name()).To(gomega.Equal("first"))
-	g.Expect(f.value(0)).To(gomega.Equal("elmer"))
+	g.Expect(AsValue(f.Value[0])).To(gomega.Equal("elmer"))
 }

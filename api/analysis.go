@@ -529,12 +529,32 @@ func (h *AnalysisHandler) appIDs(ctx *gin.Context, f *qf.Filter) (q *gorm.DB) {
 	q = appFilter.Where(q)
 	tagFilter := f.Resource("tag")
 	if field, found := tagFilter.Field("id"); found {
-		field = field.As("TagID")
-		tags := h.DB(ctx)
-		tags = tags.Model(&model.ApplicationTag{})
-		tags = tags.Select("ApplicationID")
-		tags = tags.Where(field.SQL())
-		q = q.Where("ID IN (?)", tags)
+		if !field.Relation() {
+			field = field.As("TagID")
+			tags := h.DB(ctx)
+			tags = tags.Model(&model.ApplicationTag{})
+			tags = tags.Select("ApplicationID")
+			tags = tags.Where(field.SQL())
+			q = q.Where("ID IN (?)", tags)
+		} else {
+			part := []string{}
+			values := []interface{}{}
+			for i, v := range field.Value.ByKind(qf.LITERAL, qf.STR) {
+				values = append(values, qf.AsValue(v))
+				if i > 0 {
+					part = append(part, "INTERSECT")
+				}
+				part = append(
+					part,
+					"SELECT applicationID",
+					"FROM ApplicationTags",
+					"WHERE TagID = ?")
+			}
+			tags := h.DB(ctx).Raw(
+				strings.Join(part, " "),
+				values...)
+			q = q.Where("ID IN (?)", tags)
+		}
 	}
 	return
 }
