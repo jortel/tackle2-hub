@@ -177,6 +177,10 @@ func TestParser(t *testing.T) {
 		}))
 
 	p = Parser{}
+	f, err = p.Filter("cat=()")
+	g.Expect(err).ToNot(gomega.BeNil())
+
+	p = Parser{}
 	f, err = p.Filter("cat=(one|two,three)")
 	g.Expect(err).ToNot(gomega.BeNil())
 }

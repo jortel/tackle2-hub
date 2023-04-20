@@ -119,40 +119,13 @@ func (r *List) Build() (v Value, err error) {
 				v = append(v, token)
 			default:
 				err = &BadFilterError{
-					"List: separator must be `,` `|`",
-				}
+					"List: separator must be `,` `|`"}
 				return
 			}
 		case LPAREN:
 			// ignored.
 		case RPAREN:
-			lastOp := byte(0)
-			for i := range v {
-				if math.Mod(float64(i), 2) == 0 {
-					switch v[i].Kind {
-					case LITERAL,
-						STR:
-					default:
-						err = &BadFilterError{"List: (LITERAL|STR) expected."}
-						return
-					}
-				} else {
-					switch v[i].Kind {
-					case OPERATOR:
-						operator := v[i].Value[0]
-						if lastOp != 0 {
-							if operator != lastOp {
-								err = &BadFilterError{"List: Mixed operator detected."}
-								return
-							}
-						}
-						lastOp = operator
-					default:
-						err = &BadFilterError{"List: OPERATOR expected."}
-						return
-					}
-				}
-			}
+			err = r.validate(v)
 			return
 		default:
 			err = &BadFilterError{
@@ -162,5 +135,44 @@ func (r *List) Build() (v Value, err error) {
 		}
 	}
 
+	return
+}
+
+//
+// validate the result.
+func (r *List) validate(v Value) (err error) {
+	lastOp := byte(0)
+	for i := range v {
+		if math.Mod(float64(i), 2) == 0 {
+			switch v[i].Kind {
+			case LITERAL,
+				STR:
+			default:
+				err = &BadFilterError{
+					"List: (LITERAL|STR) expected."}
+				return
+			}
+		} else {
+			switch v[i].Kind {
+			case OPERATOR:
+				operator := v[i].Value[0]
+				if lastOp != 0 {
+					if operator != lastOp {
+						err = &BadFilterError{
+							"List: Mixed operator detected."}
+						return
+					}
+				}
+				lastOp = operator
+			default:
+				err = &BadFilterError{
+					"List: OPERATOR expected."}
+				return
+			}
+		}
+	}
+	if len(v) == 0 {
+		err = &BadFilterError{"List: Empty."}
+	}
 	return
 }
