@@ -254,3 +254,28 @@ func (h *AppFacts) Delete(key string) (err error) {
 	err = h.client.Delete(path)
 	return
 }
+
+//
+// Analysis returns the analysis API.
+func (h *Application) Analysis(id uint) (a Analysis) {
+	a = Analysis{
+		client: h.client,
+		appId:  id,
+	}
+	return
+}
+
+//
+// Analysis API.
+type Analysis struct {
+	client *Client
+	appId  uint
+}
+
+//
+// Create an analysis report.
+func (h *Analysis) Create(r *api.Analysis) (err error) {
+	path := Path(api.AppAnalysesRoot).Inject(Params{api.ID: h.appId})
+	err = h.client.Post(path, r)
+	return
+}

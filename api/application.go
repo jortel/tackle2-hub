@@ -91,6 +91,7 @@ func (h ApplicationHandler) Get(ctx *gin.Context) {
 	m := &model.Application{}
 	id := h.pk(ctx)
 	db := h.preLoad(h.DB(ctx), clause.Associations)
+	db = db.Omit("Analyses")
 	result := db.First(m, id)
 	if result.Error != nil {
 		_ = ctx.Error(result.Error)
@@ -121,6 +122,7 @@ func (h ApplicationHandler) Get(ctx *gin.Context) {
 func (h ApplicationHandler) List(ctx *gin.Context) {
 	var list []model.Application
 	db := h.preLoad(h.Paginated(ctx), clause.Associations)
+	db = db.Omit("Analyses")
 	result := db.Find(&list)
 	if result.Error != nil {
 		_ = ctx.Error(result.Error)
