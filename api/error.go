@@ -47,7 +47,7 @@ func ErrorHandler() gin.HandlerFunc {
 		err := ctx.Errors[0]
 
 		if errors.Is(err, &BadRequestError{}) ||
-			errors.Is(err, &filter.BadFilterError{}) ||
+			errors.Is(err, &filter.Error{}) ||
 			errors.Is(err, validator.ValidationErrors{}) {
 			ctx.JSON(
 				http.StatusBadRequest,

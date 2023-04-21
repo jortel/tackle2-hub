@@ -25,17 +25,17 @@ const (
 )
 
 //
-// BadFilterError reports bad request errors.
-type BadFilterError struct {
+// Error reports bad request errors.
+type Error struct {
 	Reason string
 }
 
-func (r *BadFilterError) Error() string {
+func (r *Error) Error() string {
 	return r.Reason
 }
 
-func (r *BadFilterError) Is(err error) (matched bool) {
-	_, matched = err.(*BadFilterError)
+func (r *Error) Is(err error) (matched bool) {
+	_, matched = err.(*Error)
 	return
 }
 
@@ -194,7 +194,7 @@ func (q *Quoted) Read() (token Token, err error) {
 		}
 		lastCh = ch
 	}
-	err = &BadFilterError{"End \" not found."}
+	err = &Error{"End \" not found."}
 	return
 }
 
@@ -230,6 +230,6 @@ func (q *Operator) Read() (token Token, err error) {
 			return
 		}
 	}
-	err = &BadFilterError{"End of operator not found."}
+	err = &Error{"End of operator not found."}
 	return
 }

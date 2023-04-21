@@ -26,7 +26,7 @@ func (r *Parser) Filter(filter string) (f Filter, err error) {
 		}
 		if len(bfr) > 2 {
 			if bfr[0].Kind != OPERATOR || bfr[2].Kind != OPERATOR {
-				err = &BadFilterError{"Syntax error."}
+				err = &Error{"Syntax error."}
 				return
 			}
 			switch token.Kind {
@@ -61,7 +61,7 @@ func (r *Parser) Filter(filter string) (f Filter, err error) {
 		}
 	}
 	if len(bfr) != 0 {
-		err = &BadFilterError{"Syntax error."}
+		err = &Error{"Syntax error."}
 		return
 	}
 	return
@@ -116,7 +116,7 @@ func (r *List) Build() (v Value, err error) {
 	for {
 		token, next := r.next()
 		if !next {
-			err = &BadFilterError{"End ')' not found."}
+			err = &Error{"End ')' not found."}
 			break
 		}
 		switch token.Kind {
@@ -128,7 +128,7 @@ func (r *List) Build() (v Value, err error) {
 				string(OR):
 				v = append(v, token)
 			default:
-				err = &BadFilterError{
+				err = &Error{
 					"List: separator must be `,` `|`"}
 				return
 			}
@@ -138,7 +138,7 @@ func (r *List) Build() (v Value, err error) {
 			err = r.validate(v)
 			return
 		default:
-			err = &BadFilterError{
+			err = &Error{
 				"List: " + token.Value + " not expected.",
 			}
 			return
@@ -158,7 +158,7 @@ func (r *List) validate(v Value) (err error) {
 			case LITERAL,
 				STRING:
 			default:
-				err = &BadFilterError{
+				err = &Error{
 					"List: (LITERAL|STR) expected."}
 				return
 			}
@@ -168,21 +168,21 @@ func (r *List) validate(v Value) (err error) {
 				operator := v[i].Value[0]
 				if lastOp != 0 {
 					if operator != lastOp {
-						err = &BadFilterError{
+						err = &Error{
 							"List: Mixed operator detected."}
 						return
 					}
 				}
 				lastOp = operator
 			default:
-				err = &BadFilterError{
+				err = &Error{
 					"List: OPERATOR expected."}
 				return
 			}
 		}
 	}
 	if len(v) == 0 {
-		err = &BadFilterError{"List: Empty."}
+		err = &Error{"List: Empty."}
 	}
 	return
 }
