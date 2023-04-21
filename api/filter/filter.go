@@ -53,7 +53,7 @@ func (f *Filter) Validate(assertions []Assert) (err error) {
 		name := p.Field.Value
 		v, found := find(name)
 		if !found {
-			err = &BadFilterError{name + " :not supported."}
+			err = &Error{name + " :not supported."}
 			return
 		}
 		err = v.assert(&p)
@@ -252,7 +252,7 @@ func (r *Assert) assert(p *Predicate) (err error) {
 	case LITERAL:
 		switch p.Operator.Value {
 		case string(LIKE):
-			err = &BadFilterError{"Field not supported."}
+			err = &Error{"Field not supported."}
 			return
 		}
 	case STRING:
@@ -261,13 +261,13 @@ func (r *Assert) assert(p *Predicate) (err error) {
 			"<",
 			">=",
 			"<=":
-			err = &BadFilterError{"string: (>|<|>=|<=) not supported."}
+			err = &Error{"string: (>|<|>=|<=) not supported."}
 			return
 		}
 	}
 	if !r.Relation {
 		if (&Field{*p}).Value.Operator(AND) {
-			err = &BadFilterError{"(,,) not supported."}
+			err = &Error{"(,,) not supported."}
 			return
 		}
 	}

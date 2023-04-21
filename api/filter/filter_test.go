@@ -243,10 +243,10 @@ func TestValidation(t *testing.T) {
 	g.Expect(err).To(gomega.BeNil())
 	err = filter.Validate(
 		[]Assert{
-			{Field: "id", Kind: LITERAL},
-			{Field: "name", Kind: STRING},
-			{Field: "age", Kind: LITERAL},
-			{Field: "category", Kind: STRING},
+			{Name: "id", Kind: LITERAL},
+			{Name: "name", Kind: STRING},
+			{Name: "age", Kind: LITERAL},
+			{Name: "category", Kind: STRING},
 		})
 	g.Expect(err).To(gomega.BeNil())
 
@@ -255,8 +255,8 @@ func TestValidation(t *testing.T) {
 	g.Expect(err).To(gomega.BeNil())
 	err = filter.Validate(
 		[]Assert{
-			{Field: "id", Kind: LITERAL},
-			{Field: "name", Kind: STRING},
+			{Name: "id", Kind: LITERAL},
+			{Name: "name", Kind: STRING},
 		})
 	g.Expect(err).ToNot(gomega.BeNil())
 
@@ -265,7 +265,7 @@ func TestValidation(t *testing.T) {
 	g.Expect(err).To(gomega.BeNil())
 	err = filter.Validate(
 		[]Assert{
-			{Field: "name", Kind: STRING},
+			{Name: "name", Kind: STRING},
 		})
 	g.Expect(err).ToNot(gomega.BeNil())
 
@@ -274,7 +274,7 @@ func TestValidation(t *testing.T) {
 	g.Expect(err).To(gomega.BeNil())
 	err = filter.Validate(
 		[]Assert{
-			{Field: "age", Kind: LITERAL},
+			{Name: "age", Kind: LITERAL},
 		})
 	g.Expect(err).ToNot(gomega.BeNil())
 }
