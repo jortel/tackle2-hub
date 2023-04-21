@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/konveyor/controller/pkg/logging"
+	qf "github.com/konveyor/tackle2-hub/api/filter"
 	"github.com/konveyor/tackle2-hub/auth"
 	"github.com/konveyor/tackle2-hub/model"
 	"gorm.io/gorm"
@@ -437,3 +438,12 @@ func (p *Sort) Sorted(in *gorm.DB) (out *gorm.DB) {
 	out = out.Order(sort)
 	return
 }
+
+//
+//
+type Field = qf.Assert
+
+const (
+	LITERAL = qf.LITERAL
+	STRING  = qf.STRING
+)

@@ -42,7 +42,7 @@ func (f *Filter) Validate(assertions []Assert) (err error) {
 		name = strings.ToLower(name)
 		for i := range assertions {
 			assert = &assertions[i]
-			if strings.ToLower(assert.Field) == name {
+			if strings.ToLower(assert.Name) == name {
 				found = true
 				break
 			}
@@ -240,7 +240,7 @@ func (f *Field) operator() (s string) {
 //
 // Assert -
 type Assert struct {
-	Field    string
+	Name     string
 	Kind     byte
 	Relation bool
 }
