@@ -30,7 +30,7 @@ func (r *Parser) Filter(filter string) (f Filter, err error) {
 				return
 			}
 			switch token.Kind {
-			case LITERAL, STR:
+			case LITERAL, STRING:
 				p := Predicate{
 					Unused:   bfr[0],
 					Field:    bfr[1],
@@ -94,6 +94,16 @@ func (r Value) ByKind(kind ...byte) (matched []Token) {
 }
 
 //
+// Operator returns true when contains the specified operator.
+func (r *Value) Operator(operator byte) (matched bool) {
+	operators := r.ByKind(OPERATOR)
+	if len(operators) > 0 {
+		matched = operators[0].Value[0] == operator
+	}
+	return
+}
+
+//
 // List construct.
 // Example: (red|blue|green)
 type List struct {
@@ -110,11 +120,11 @@ func (r *List) Build() (v Value, err error) {
 			break
 		}
 		switch token.Kind {
-		case LITERAL, STR:
+		case LITERAL, STRING:
 			v = append(v, token)
 		case OPERATOR:
 			switch token.Value {
-			case string(COMMA),
+			case string(AND),
 				string(OR):
 				v = append(v, token)
 			default:
@@ -146,7 +156,7 @@ func (r *List) validate(v Value) (err error) {
 		if math.Mod(float64(i), 2) == 0 {
 			switch v[i].Kind {
 			case LITERAL,
-				STR:
+				STRING:
 			default:
 				err = &BadFilterError{
 					"List: (LITERAL|STR) expected."}

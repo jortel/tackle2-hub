@@ -4,6 +4,7 @@ const (
 	EOF    = 0
 	COLON  = ':'
 	COMMA  = ','
+	AND    = COMMA
 	OR     = '|'
 	EQ     = '='
 	LIKE   = '~'
@@ -19,7 +20,7 @@ const (
 
 const (
 	LITERAL  = 0x01
-	STR      = 0x02
+	STRING   = 0x02
 	OPERATOR = 0x03
 )
 
@@ -184,7 +185,7 @@ func (q *Quoted) Read() (token Token, err error) {
 		case QUOTE:
 			bfr = append(bfr, ch)
 			if lastCh != ESCAPE {
-				token.Kind = STR
+				token.Kind = STRING
 				token.Value = string(bfr)
 				return
 			}

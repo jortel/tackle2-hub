@@ -144,35 +144,26 @@ func (f *Field) SQL() (s string, v interface{}) {
 				" ")
 		}
 	default:
-		operator := f.Value.ByKind(OPERATOR)[0]
-		switch operator.Value[0] {
-		case COMMA:
-			// Unsupported.
-		case OR:
-			values := f.Value.ByKind(LITERAL, STR)
-			collection := []interface{}{}
-			for i := range values {
-				v := AsValue(values[i])
-				collection = append(collection, v)
-			}
-			v = collection
-			s = strings.Join(
-				[]string{
-					name,
-					f.operator(),
-					"?",
-				},
-				" ")
+		if f.Value.Operator(AND) {
+			// not supported.
+			break
 		}
+		values := f.Value.ByKind(LITERAL, STRING)
+		collection := []interface{}{}
+		for i := range values {
+			v := AsValue(values[i])
+			collection = append(collection, v)
+		}
+		v = collection
+		s = strings.Join(
+			[]string{
+				name,
+				f.operator(),
+				"?",
+			},
+			" ")
 	}
 	return
-}
-
-//
-// Relation determines if the field is a relation.
-func (f *Field) Relation() bool {
-	operator := f.Value.ByKind(OPERATOR)
-	return len(operator) > 0 && operator[0].Value[0] == COMMA
 }
 
 //
@@ -203,11 +194,6 @@ func (f *Field) operator() (s string) {
 			s = "LIKE"
 		}
 	default:
-		switch len(f.Value) {
-		case 0:
-		case 1:
-		}
-
 		s = "IN"
 	}
 

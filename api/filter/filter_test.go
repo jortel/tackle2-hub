@@ -28,7 +28,7 @@ func TestLexer(t *testing.T) {
 		[]Token{
 			{Kind: LITERAL, Value: "name"},
 			{Kind: OPERATOR, Value: string(COLON)},
-			{Kind: STR, Value: "\"one|two\""},
+			{Kind: STRING, Value: "\"one|two\""},
 		}))
 
 	lexer = Lexer{}
@@ -38,7 +38,7 @@ func TestLexer(t *testing.T) {
 		[]Token{
 			{Kind: LITERAL, Value: "name"},
 			{Kind: OPERATOR, Value: string(COLON)},
-			{Kind: STR, Value: "\"one=two\""},
+			{Kind: STRING, Value: "\"one=two\""},
 		}))
 
 	lexer = Lexer{}
@@ -48,7 +48,7 @@ func TestLexer(t *testing.T) {
 		[]Token{
 			{Kind: LITERAL, Value: "name"},
 			{Kind: OPERATOR, Value: string(COLON)},
-			{Kind: STR, Value: "\"(one|two)\""},
+			{Kind: STRING, Value: "\"(one|two)\""},
 		}))
 
 	lexer = Lexer{}
@@ -58,7 +58,7 @@ func TestLexer(t *testing.T) {
 		[]Token{
 			{Kind: LITERAL, Value: "name"},
 			{Kind: OPERATOR, Value: string(COLON)},
-			{Kind: STR, Value: "\"hello world\""},
+			{Kind: STRING, Value: "\"hello world\""},
 		}))
 
 	lexer = Lexer{}
@@ -68,7 +68,7 @@ func TestLexer(t *testing.T) {
 		[]Token{
 			{Kind: LITERAL, Value: "name"},
 			{Kind: OPERATOR, Value: string(EQ)},
-			{Kind: STR, Value: "\"elmer\""},
+			{Kind: STRING, Value: "\"elmer\""},
 			{Kind: OPERATOR, Value: string(COMMA)},
 			{Kind: LITERAL, Value: "age"},
 			{Kind: OPERATOR, Value: string(GT)},
@@ -212,7 +212,7 @@ func TestFilter(t *testing.T) {
 		{Kind: OPERATOR, Value: string(OR)},
 		{Kind: OPERATOR, Value: string(OR)},
 	}))
-	g.Expect(f.Value.ByKind(LITERAL, STR)).To(gomega.Equal([]Token{
+	g.Expect(f.Value.ByKind(LITERAL, STRING)).To(gomega.Equal([]Token{
 		{Kind: LITERAL, Value: "a"},
 		{Kind: LITERAL, Value: "b"},
 		{Kind: LITERAL, Value: "c"},
