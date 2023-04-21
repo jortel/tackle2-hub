@@ -244,7 +244,12 @@ func (h AnalysisHandler) AppDeps(ctx *gin.Context) {
 		return
 	}
 	// Build query.
-	filter, err := qf.New(ctx)
+	filter, err := qf.New(ctx,
+		qf.Assert{Field: "name", Kind: qf.STRING},
+		qf.Assert{Field: "version", Kind: qf.STRING},
+		qf.Assert{Field: "type", Kind: qf.STRING},
+		qf.Assert{Field: "indirect", Kind: qf.STRING},
+		qf.Assert{Field: "sha", Kind: qf.STRING})
 	if err != nil {
 		_ = ctx.Error(err)
 		return

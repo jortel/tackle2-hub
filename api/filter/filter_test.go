@@ -234,3 +234,47 @@ func TestFilter(t *testing.T) {
 	g.Expect(f.Name()).To(gomega.Equal("first"))
 	g.Expect(AsValue(f.Value[0])).To(gomega.Equal("elmer"))
 }
+
+func TestValidation(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	p := Parser{}
+	filter, err := p.Filter("name:elmer,age>20,category=(a|b|c)")
+	g.Expect(err).To(gomega.BeNil())
+	err = filter.Validate(
+		[]Assert{
+			{Field: "id", Kind: LITERAL},
+			{Field: "name", Kind: STRING},
+			{Field: "age", Kind: LITERAL},
+			{Field: "category", Kind: STRING},
+		})
+	g.Expect(err).To(gomega.BeNil())
+
+	p = Parser{}
+	filter, err = p.Filter("name:elmer,age:20")
+	g.Expect(err).To(gomega.BeNil())
+	err = filter.Validate(
+		[]Assert{
+			{Field: "id", Kind: LITERAL},
+			{Field: "name", Kind: STRING},
+		})
+	g.Expect(err).ToNot(gomega.BeNil())
+
+	p = Parser{}
+	filter, err = p.Filter("name<elmer")
+	g.Expect(err).To(gomega.BeNil())
+	err = filter.Validate(
+		[]Assert{
+			{Field: "name", Kind: STRING},
+		})
+	g.Expect(err).ToNot(gomega.BeNil())
+
+	p = Parser{}
+	filter, err = p.Filter("age~10")
+	g.Expect(err).To(gomega.BeNil())
+	err = filter.Validate(
+		[]Assert{
+			{Field: "age", Kind: LITERAL},
+		})
+	g.Expect(err).ToNot(gomega.BeNil())
+}

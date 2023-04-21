@@ -13,12 +13,16 @@ const (
 
 //
 // New filter.
-func New(ctx *gin.Context) (f Filter, err error) {
+func New(ctx *gin.Context, assertions ...Assert) (f Filter, err error) {
 	p := Parser{}
 	q := strings.Join(
 		ctx.QueryArray(QueryParam),
 		string(COMMA))
 	f, err = p.Filter(q)
+	if err == nil {
+		return
+	}
+	err = f.Validate(assertions)
 	return
 }
 
@@ -26,6 +30,39 @@ func New(ctx *gin.Context) (f Filter, err error) {
 // Filter is a collection of predicates.
 type Filter struct {
 	predicates []Predicate
+}
+
+//
+// Validate -
+func (f *Filter) Validate(assertions []Assert) (err error) {
+	if len(assertions) == 0 {
+		return
+	}
+	find := func(name string) (assert *Assert, found bool) {
+		name = strings.ToLower(name)
+		for i := range assertions {
+			assert = &assertions[i]
+			if strings.ToLower(assert.Field) == name {
+				found = true
+				break
+			}
+		}
+		return
+	}
+	for _, p := range f.predicates {
+		name := p.Field.Value
+		v, found := find(name)
+		if !found {
+			err = &BadFilterError{name + " :not supported."}
+			return
+		}
+		err = v.assert(&p)
+		if err != nil {
+			break
+		}
+	}
+
+	return
 }
 
 //
@@ -197,6 +234,43 @@ func (f *Field) operator() (s string) {
 		s = "IN"
 	}
 
+	return
+}
+
+//
+// Assert -
+type Assert struct {
+	Field    string
+	Kind     byte
+	Relation bool
+}
+
+//
+// assert validation.
+func (r *Assert) assert(p *Predicate) (err error) {
+	switch r.Kind {
+	case LITERAL:
+		switch p.Operator.Value {
+		case string(LIKE):
+			err = &BadFilterError{"Field not supported."}
+			return
+		}
+	case STRING:
+		switch p.Operator.Value {
+		case ">",
+			"<",
+			">=",
+			"<=":
+			err = &BadFilterError{"string: (>|<|>=|<=) not supported."}
+			return
+		}
+	}
+	if !r.Relation {
+		if (&Field{*p}).Value.Operator(AND) {
+			err = &BadFilterError{"(,,) not supported."}
+			return
+		}
+	}
 	return
 }
 
