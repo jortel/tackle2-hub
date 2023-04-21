@@ -464,11 +464,20 @@ func (h AnalysisHandler) Deps(ctx *gin.Context) {
 		_ = ctx.Error(err)
 		return
 	}
+	// Count.
 	db := h.DB(ctx)
 	db = filter.Where(db)
 	db = db.Where("AnalysisID IN (?)", h.analysisIDs(ctx, &filter))
-	db = db.Select("COUNT(DISTINCT Name|Version|Type|SHA)")
-	// Count.
+	db = db.Select(
+		strings.Join([]string{
+			"COUNT(",
+			"DISTINCT",
+			"Name",
+			"|| ifnull(Version,'')",
+			"|| ifnull(Type,'')",
+			"|| ifnull(SHA,''))",
+		},
+			" "))
 	count := int64(0)
 	result := db.Model(&model.AnalysisDependency{}).First(&count)
 	if result.Error != nil {
