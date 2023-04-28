@@ -1,6 +1,10 @@
 package api
 
 import (
+	"github.com/gin-gonic/gin"
+	"github.com/konveyor/tackle2-hub/model"
+	"gorm.io/gorm/clause"
+	"net/http"
 	"strings"
 )
 
@@ -12,6 +16,99 @@ const (
 	EffortL  = "large"
 	EffortXL = "extra_large"
 )
+
+//
+// Routes
+const (
+	AdoptionPlansRoot = "/reports/adoptionplan"
+)
+
+//
+//
+type AdoptionPlanHandler struct {
+	BaseHandler
+}
+
+//
+// AddRoutes adds routes.
+func (h AdoptionPlanHandler) AddRoutes(e *gin.Engine) {
+	routeGroup := e.Group("/")
+	routeGroup.Use(Required("adoptionplans"))
+	routeGroup.POST(AdoptionPlansRoot, h.Graph)
+}
+
+// Get godoc
+// @summary Generate an application dependency graph arranged in topological order.
+// @description Graph generates an application dependency graph arranged in topological order.
+// @tags adoptionplans
+// @produce json
+// @success 200 {object} api.DependencyGraph
+// @router /adoptionplans [post]
+// @param requestedApps path array true "requested App IDs"
+func (h AdoptionPlanHandler) Graph(ctx *gin.Context) {
+	var requestedApps []struct {
+		ApplicationID uint `json:"applicationId"`
+	}
+
+	err := h.Bind(ctx, &requestedApps)
+	if err != nil {
+		_ = ctx.Error(err)
+	}
+
+	var ids []uint
+	for _, a := range requestedApps {
+		ids = append(ids, a.ApplicationID)
+	}
+
+	var reviews []model.Review
+	db := h.preLoad(h.DB(ctx), clause.Associations)
+	result := db.Where("applicationId IN ?", ids).Find(&reviews)
+	if result.Error != nil {
+		_ = ctx.Error(result.Error)
+		return
+	}
+
+	var deps []model.Dependency
+	result = h.DB(ctx).Where("toId IN ? AND fromId IN ?", ids, ids).Find(&deps)
+	if result.Error != nil {
+		_ = ctx.Error(result.Error)
+		return
+	}
+
+	graph := NewDependencyGraph()
+	for i := range reviews {
+		review := &reviews[i]
+		vertex := Vertex{
+			ID:             review.ApplicationID,
+			Name:           review.Application.Name,
+			Decision:       review.ProposedAction,
+			EffortEstimate: review.EffortEstimate,
+			Effort:         numericEffort(review.EffortEstimate),
+			PositionY:      int(review.WorkPriority),
+		}
+		graph.AddVertex(&vertex)
+	}
+
+	for i := range deps {
+		v := deps[i].FromID
+		w := deps[i].ToID
+		if graph.HasVertex(v) && graph.HasVertex(w) {
+			graph.AddEdge(v, w)
+		}
+	}
+
+	sorted, ok := graph.TopologicalSort()
+	if !ok {
+		h.Render(ctx,
+			http.StatusBadRequest,
+			gin.H{
+				"error": "dependency cycle detected",
+			})
+		return
+	}
+
+	h.Render(ctx, http.StatusOK, sorted)
+}
 
 //
 // Vertex represents a vertex in the dependency graph.

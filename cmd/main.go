@@ -5,7 +5,6 @@ import (
 	"github.com/gin-gonic/gin"
 	liberr "github.com/konveyor/controller/pkg/error"
 	"github.com/konveyor/controller/pkg/logging"
-	"github.com/konveyor/tackle2-hub/api"
 	"github.com/konveyor/tackle2-hub/auth"
 	"github.com/konveyor/tackle2-hub/controller"
 	"github.com/konveyor/tackle2-hub/database"
@@ -17,6 +16,7 @@ import (
 	"github.com/konveyor/tackle2-hub/settings"
 	"github.com/konveyor/tackle2-hub/task"
 	"github.com/konveyor/tackle2-hub/tracker"
+	web "github.com/konveyor/tackle2-hub/web"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -183,13 +183,13 @@ func main() {
 	router := gin.Default()
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
-	router.Use(api.ErrorHandler())
+	router.Use(web.ErrorHandler())
 	router.Use(
 		func(ctx *gin.Context) {
-			rtx := api.WithContext(ctx)
+			rtx := web.WithContext(ctx)
 			rtx.DB = db
 		})
-	for _, h := range api.All() {
+	for _, h := range web.All() {
 		h.With(client)
 		h.AddRoutes(router)
 	}

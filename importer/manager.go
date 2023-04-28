@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	web "github.com/konveyor/tackle2-hub/web"
 	"regexp"
 
 	liberr "github.com/konveyor/controller/pkg/error"
@@ -51,9 +52,9 @@ func (m *Manager) processImports() (err error) {
 	for _, imp := range list {
 		var ok bool
 		switch imp.RecordType1 {
-		case api.RecordTypeApplication:
+		case web.RecordTypeApplication:
 			ok = m.createApplication(&imp)
-		case api.RecordTypeDependency:
+		case web.RecordTypeDependency:
 			ok = m.createDependency(&imp)
 		default:
 			errMsg := ""
