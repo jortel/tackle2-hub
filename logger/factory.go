@@ -9,20 +9,20 @@ import (
 )
 
 //
-// Builder.
+// Builder factory.
 type Builder interface {
-	New() logr.Logger
-	V(int, logr.Logger) logr.Logger
+	New() logr.LogSink
+	V(int, logr.LogSink) logr.LogSink
 }
 
 //
-// Zap builder factory.
+// ZapBuilder factory.
 type ZapBuilder struct {
 }
 
 //
-// Build new logger.
-func (b *ZapBuilder) New() (logger logr.Logger) {
+// New returns a new logger.
+func (b *ZapBuilder) New() (sink logr.LogSink) {
 	var encoder zapcore.Encoder
 	sinker := zapcore.AddSync(os.Stderr)
 	level := zap.NewAtomicLevelAt(zap.DebugLevel)
@@ -39,24 +39,23 @@ func (b *ZapBuilder) New() (logger logr.Logger) {
 		cfg := zap.NewProductionEncoderConfig()
 		encoder = zapcore.NewJSONEncoder(cfg)
 	}
-	logger = zapr.NewLogger(
+	logger := zapr.NewLogger(
 		zap.New(
 			zapcore.NewCore(
 				encoder,
 				sinker,
 				level)).WithOptions(options...))
-
+	sink = logger.GetSink()
 	return
 }
 
 //
-// Debug logger.
-func (b *ZapBuilder) V(level int, in logr.Logger) (l logr.Logger) {
+// V returns a logger with level.
+func (b *ZapBuilder) V(level int, in logr.Logger) (out logr.LogSink) {
 	if Settings.atDebug(level) {
-		l = in.V(1)
+		out = in.V(1).GetSink()
 	} else {
-		l = in.V(0)
+		out = in.V(0).GetSink()
 	}
-
 	return
 }
