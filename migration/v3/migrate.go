@@ -2,15 +2,15 @@ package v3
 
 import (
 	"encoding/json"
-	liberr "github.com/konveyor/controller/pkg/error"
-	"github.com/konveyor/controller/pkg/logging"
+	liberr "github.com/konveyor/tackle2-hub/error"
+	"github.com/konveyor/tackle2-hub/logger"
 	v2 "github.com/konveyor/tackle2-hub/migration/v2/model"
 	"github.com/konveyor/tackle2-hub/migration/v3/model"
 	"github.com/konveyor/tackle2-hub/migration/v3/seed"
 	"gorm.io/gorm"
 )
 
-var log = logging.WithName("migration|v3")
+var log = logger.WithName("migration|v3")
 
 type Migration struct{}
 

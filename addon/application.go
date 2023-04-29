@@ -1,8 +1,8 @@
 package addon
 
 import (
-	liberr "github.com/konveyor/controller/pkg/error"
 	"github.com/konveyor/tackle2-hub/api"
+	liberr "github.com/konveyor/tackle2-hub/error"
 	"strconv"
 )
 

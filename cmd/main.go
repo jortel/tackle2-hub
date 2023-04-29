@@ -3,14 +3,14 @@ package main
 import (
 	"context"
 	"github.com/gin-gonic/gin"
-	liberr "github.com/konveyor/controller/pkg/error"
-	"github.com/konveyor/controller/pkg/logging"
 	"github.com/konveyor/tackle2-hub/auth"
 	"github.com/konveyor/tackle2-hub/controller"
 	"github.com/konveyor/tackle2-hub/database"
+	liberr "github.com/konveyor/tackle2-hub/error"
 	"github.com/konveyor/tackle2-hub/importer"
 	"github.com/konveyor/tackle2-hub/k8s"
 	crd "github.com/konveyor/tackle2-hub/k8s/api"
+	"github.com/konveyor/tackle2-hub/logger"
 	"github.com/konveyor/tackle2-hub/migration"
 	"github.com/konveyor/tackle2-hub/reaper"
 	"github.com/konveyor/tackle2-hub/settings"
@@ -28,7 +28,7 @@ import (
 
 var Settings = &settings.Settings
 
-var log = logging.WithName("hub")
+var log = logger.WithName("hub")
 
 func init() {
 	_ = Settings.Load()
@@ -92,7 +92,7 @@ func main() {
 	var err error
 	defer func() {
 		if err != nil {
-			log.Trace(err)
+			log.Error(err, "")
 		}
 	}()
 	syscall.Umask(0)

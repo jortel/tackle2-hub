@@ -3,8 +3,8 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	liberr "github.com/konveyor/controller/pkg/error"
-	"github.com/konveyor/controller/pkg/logging"
+	liberr "github.com/konveyor/tackle2-hub/error"
+	"github.com/konveyor/tackle2-hub/logger"
 	"github.com/konveyor/tackle2-hub/model"
 	"github.com/konveyor/tackle2-hub/settings"
 	"gorm.io/driver/sqlite"
@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-var log = logging.WithName("db")
+var log = logger.WithName("db")
 
 var Settings = &settings.Settings
 

@@ -2,7 +2,7 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
-	liberr "github.com/konveyor/controller/pkg/error"
+	liberr "github.com/konveyor/tackle2-hub/error"
 	"github.com/konveyor/tackle2-hub/nas"
 	"net/http"
 	"os"

@@ -1,7 +1,7 @@
 package auth
 
 import (
-	liberr "github.com/konveyor/controller/pkg/error"
+	liberr "github.com/konveyor/tackle2-hub/error"
 	"github.com/konveyor/tackle2-hub/settings"
 	"gopkg.in/yaml.v3"
 	"io"

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	liberr "github.com/konveyor/controller/pkg/error"
+	liberr "github.com/konveyor/tackle2-hub/error"
 	"io"
 	"net/http"
 	"net/http/httputil"

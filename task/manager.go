@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/golang-jwt/jwt/v4"
-	liberr "github.com/konveyor/controller/pkg/error"
-	"github.com/konveyor/controller/pkg/logging"
 	"github.com/konveyor/tackle2-hub/auth"
+	liberr "github.com/konveyor/tackle2-hub/error"
 	crd "github.com/konveyor/tackle2-hub/k8s/api/tackle/v1alpha1"
+	"github.com/konveyor/tackle2-hub/logger"
 	"github.com/konveyor/tackle2-hub/model"
 	"github.com/konveyor/tackle2-hub/settings"
 	"gorm.io/gorm"
@@ -46,7 +46,7 @@ const (
 
 var (
 	Settings = &settings.Settings
-	Log      = logging.WithName("task-scheduler")
+	Log      = logger.WithName("task-scheduler")
 )
 
 //
@@ -160,12 +160,12 @@ func (m *Manager) startReady() {
 					sErr := m.DB.Save(ready).Error
 					Log.Trace(sErr)
 				}
-				Log.Trace(err)
+				Log.Error(err, "")
 				continue
 			}
 			Log.Info("Task started.", "id", ready.ID)
 			err = m.DB.Save(ready).Error
-			Log.Trace(err)
+			Log.Error(err, "")
 		default:
 			// Ignored.
 			// Other states included to support
@@ -198,7 +198,7 @@ func (m *Manager) updateRunning() {
 		rt := Task{&running}
 		err := rt.Reflect(m.Client)
 		if err != nil {
-			Log.Trace(err)
+			Log.Error(err, "")
 			continue
 		}
 		err = m.DB.Save(&running).Error
@@ -242,15 +242,15 @@ func (m *Manager) postpone(ready *model.Task, list []model.Task) (postponed bool
 func (m *Manager) canceled(task *model.Task) {
 	rt := Task{task}
 	err := rt.Cancel(m.Client)
-	Log.Trace(err)
+	Log.Error(err, "")
 	if err != nil {
 		return
 	}
 	err = m.DB.Save(task).Error
-	Log.Trace(err)
+	Log.Error(err, "")
 	db := m.DB.Model(&model.TaskReport{})
 	err = db.Delete("taskid", task.ID).Error
-	Log.Trace(err)
+	Log.Error(err, "")
 	return
 }
 

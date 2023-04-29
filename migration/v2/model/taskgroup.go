@@ -2,7 +2,7 @@ package model
 
 import (
 	"encoding/json"
-	liberr "github.com/konveyor/controller/pkg/error"
+	liberr "github.com/konveyor/tackle2-hub/error"
 )
 
 type TaskGroup struct {

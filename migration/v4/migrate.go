@@ -1,13 +1,13 @@
 package v4
 
 import (
-	liberr "github.com/konveyor/controller/pkg/error"
-	"github.com/konveyor/controller/pkg/logging"
+	liberr "github.com/konveyor/tackle2-hub/error"
+	"github.com/konveyor/tackle2-hub/logger"
 	"github.com/konveyor/tackle2-hub/migration/v4/model"
 	"gorm.io/gorm"
 )
 
-var log = logging.WithName("migration|v4")
+var log = logger.WithName("migration|v4")
 
 type Migration struct{}
 

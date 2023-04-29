@@ -1,8 +1,8 @@
 package model
 
 import (
-	liberr "github.com/konveyor/controller/pkg/error"
 	"github.com/konveyor/tackle2-hub/encryption"
+	liberr "github.com/konveyor/tackle2-hub/error"
 )
 
 //

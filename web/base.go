@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	"github.com/konveyor/controller/pkg/logging"
 	"github.com/konveyor/tackle2-hub/auth"
+	"github.com/konveyor/tackle2-hub/logger"
 	"github.com/konveyor/tackle2-hub/model"
 	"gorm.io/gorm"
 	"io"
@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-var Log = logging.WithName("api")
+var Log = logger.WithName("api")
 
 //
 // BaseHandler base handler.

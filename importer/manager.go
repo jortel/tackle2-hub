@@ -7,8 +7,8 @@ import (
 	web "github.com/konveyor/tackle2-hub/web"
 	"regexp"
 
-	liberr "github.com/konveyor/controller/pkg/error"
 	"github.com/konveyor/tackle2-hub/api"
+	liberr "github.com/konveyor/tackle2-hub/error"
 	"github.com/konveyor/tackle2-hub/model"
 	"gorm.io/gorm"
 	"strings"
