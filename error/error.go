@@ -9,7 +9,7 @@ import (
 )
 
 //
-// Create a new wrapped error.
+// New returns a new wrapped error.
 func New(m string, kvpair ...interface{}) error {
 	return Wrap(
 		errors.New(m),
@@ -18,7 +18,7 @@ func New(m string, kvpair ...interface{}) error {
 
 //
 // Wrap an error.
-// Returns `err` when err is `nil` or *Error.
+// Returns `err` when err is `nil` or error.
 func Wrap(err error, kvpair ...interface{}) error {
 	if err == nil {
 		return err
@@ -73,13 +73,11 @@ func Unwrap(err error) (out error) {
 }
 
 //
-// Error.
-// Wraps a root cause error and captures
-// the stack.
+// Error provides an error with context and stack.
 type Error struct {
 	// Original error.
 	wrapped error
-	// Error description.
+	// description of the error.
 	description string
 	// Context.
 	context []interface{}
@@ -98,7 +96,7 @@ func (e Error) Error() string {
 }
 
 //
-// Error stack trace.
+// Stack returns the stack trace.
 // Format:
 //   package.Function()
 //     file:line
@@ -110,7 +108,7 @@ func (e Error) Stack() string {
 }
 
 //
-// Get `context` key/value pairs.
+// Context returns the`context` key/value pairs.
 func (e Error) Context() []interface{} {
 	return e.context
 }
@@ -122,7 +120,7 @@ func (e Error) Unwrap() error {
 }
 
 //
-// Append context.
+// append the context.
 // And odd number of context is interpreted as:
 // a description followed by an even number of key value pairs.
 func (e *Error) append(kvpair []interface{}) {
