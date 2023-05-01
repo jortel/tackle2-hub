@@ -5,12 +5,18 @@ go 1.16
 require (
 	github.com/Nerzal/gocloak/v10 v10.0.1
 	github.com/andygrunwald/go-jira v1.16.0
+	github.com/appscode/jsonpatch v1.0.1 // indirect
+	github.com/evanphx/json-patch v4.5.0+incompatible // indirect
 	github.com/gin-gonic/gin v1.8.1
+	github.com/go-logr/logr v1.2.4
 	github.com/go-playground/validator/v10 v10.10.0
+	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang-jwt/jwt/v4 v4.4.2
+	github.com/google/gofuzz v1.1.0 // indirect
 	github.com/google/uuid v1.1.2
+	github.com/googleapis/gnostic v0.2.0 // indirect
+	github.com/imdario/mergo v0.3.11 // indirect
 	github.com/jortel/go-utils v0.0.0-20230501142628-d6e403a65fe2
-	github.com/konveyor/controller v0.8.0
 	github.com/mattn/go-sqlite3 v1.14.15
 	github.com/onsi/gomega v1.27.6
 	github.com/prometheus/client_golang v1.13.0
@@ -24,16 +30,10 @@ require (
 	gorm.io/driver/sqlserver v1.2.1 // indirect
 	gorm.io/gorm v1.24.5
 	k8s.io/api v0.17.4
+	k8s.io/apiextensions-apiserver v0.17.4 // indirect
 	k8s.io/apimachinery v0.17.4
-	k8s.io/apiserver v0.17.1
+	k8s.io/apiserver v0.17.4
 	k8s.io/client-go v0.17.4
 	sigs.k8s.io/controller-runtime v0.1.11
+	sigs.k8s.io/testing_frameworks v0.1.2 // indirect
 )
-
-replace k8s.io/apimachinery => k8s.io/apimachinery v0.0.0-20181127025237-2b1284ed4c93
-
-replace k8s.io/client-go => k8s.io/client-go v0.0.0-20181213151034-8d9ed539ba31
-
-replace k8s.io/api => k8s.io/api v0.0.0-20181213150558-05914d821849
-
-replace k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.0.0-20181213153335-0fe22c71c476
