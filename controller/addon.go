@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	libcnd "github.com/konveyor/controller/pkg/condition"
-	"github.com/konveyor/controller/pkg/logging"
+	logr "github.com/konveyor/controller/pkg/logging"
 	api "github.com/konveyor/tackle2-hub/k8s/api/tackle/v1alpha1"
 	"github.com/konveyor/tackle2-hub/settings"
 	"gorm.io/gorm"
@@ -24,7 +24,7 @@ const (
 
 //
 // Package logger.
-var log = logging.WithName(Name)
+var log = logr.WithName(Name)
 
 //
 // Settings defines applcation settings.
@@ -46,7 +46,7 @@ func Add(mgr manager.Manager, db *gorm.DB) error {
 			Reconciler: reconciler,
 		})
 	if err != nil {
-		log.Trace(err)
+		log.Error(err, "")
 		return err
 	}
 	// Primary CR.
@@ -54,7 +54,7 @@ func Add(mgr manager.Manager, db *gorm.DB) error {
 		&source.Kind{Type: &api.Addon{}},
 		&handler.EnqueueRequestForObject{})
 	if err != nil {
-		log.Trace(err)
+		log.Error(err, "")
 		return err
 	}
 
@@ -68,7 +68,7 @@ type Reconciler struct {
 	k8s.Client
 	DB           *gorm.DB
 	AdminChanged chan int
-	Log          *logging.Logger
+	Log          *logr.Logger
 }
 
 //
@@ -76,7 +76,7 @@ type Reconciler struct {
 // Note: Must not a pointer receiver to ensure that the
 // logger and other state is not shared.
 func (r Reconciler) Reconcile(request reconcile.Request) (result reconcile.Result, err error) {
-	r.Log = logging.WithName(
+	r.Log = logr.WithName(
 		names.SimpleNameGenerator.GenerateName(Name+"|"),
 		"addon",
 		request)

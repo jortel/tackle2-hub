@@ -2,7 +2,7 @@ package k8s
 
 import (
 	"context"
-	liberr "github.com/konveyor/controller/pkg/error"
+	liberr "github.com/jortel/go-utils/error"
 	"github.com/konveyor/tackle2-hub/settings"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
