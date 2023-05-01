@@ -73,7 +73,7 @@ type Reconciler struct {
 // Reconcile a Addon CR.
 // Note: Must not a pointer receiver to ensure that the
 // logger and other state is not shared.
-func (r Reconciler) Reconcile(request reconcile.Request) (result reconcile.Result, err error) {
+func (r Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
 	r.Log = logr2.WithName(
 		names.SimpleNameGenerator.GenerateName(Name+"|"),
 		"addon",

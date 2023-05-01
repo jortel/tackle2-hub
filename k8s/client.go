@@ -67,10 +67,6 @@ func (r *FakeClient) Status() (w client.StatusWriter) {
 	return
 }
 
-func (r *FakeClient) SubResource(subResource string) (s client.SubResourceClient) {
-	return
-}
-
 func (r *FakeClient) Scheme() (s *runtime.Scheme) {
 	return
 }

@@ -116,7 +116,7 @@ func main() {
 			return
 		}
 		go func() {
-			err = addonManager.Start(make(<-chan struct{}))
+			err = addonManager.Start(context.Background())
 			if err != nil {
 				err = liberr.Wrap(err)
 				return

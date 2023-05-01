@@ -440,8 +440,8 @@ func (r *Task) findTackle(client k8s.Client) (owner *crd.Tackle, err error) {
 	list := crd.TackleList{}
 	err = client.List(
 		context.TODO(),
-		&k8s.ListOptions{Namespace: Settings.Namespace},
-		&list)
+		&list,
+		&k8s.ListOptions{Namespace: Settings.Namespace})
 	if err != nil {
 		err = liberr.Wrap(err)
 		return
