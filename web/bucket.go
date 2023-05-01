@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	liberr "github.com/jortel/go-utils/error"
+	"github.com/konveyor/tackle2-hub/api"
 	"github.com/konveyor/tackle2-hub/model"
 	"github.com/konveyor/tackle2-hub/nas"
 	"io"
@@ -17,21 +18,12 @@ import (
 	pathlib "path"
 	"path/filepath"
 	"strings"
-	"time"
-)
-
-//
-// Routes
-const (
-	BucketsRoot       = "/buckets"
-	BucketRoot        = BucketsRoot + "/:" + ID
-	BucketContentRoot = BucketRoot + "/*" + Wildcard
 )
 
 //
 // Params
 const (
-	Filter = "filter"
+	Filter = api.Filter
 )
 
 //
@@ -45,15 +37,15 @@ type BucketHandler struct {
 func (h BucketHandler) AddRoutes(e *gin.Engine) {
 	routeGroup := e.Group("/")
 	routeGroup.Use(Required("buckets"))
-	routeGroup.GET(BucketsRoot, h.List)
-	routeGroup.GET(BucketsRoot+"/", h.List)
-	routeGroup.POST(BucketsRoot, h.Create)
-	routeGroup.GET(BucketRoot, h.Get)
-	routeGroup.DELETE(BucketRoot, h.Delete)
-	routeGroup.POST(BucketContentRoot, h.BucketPut)
-	routeGroup.PUT(BucketContentRoot, h.BucketPut)
-	routeGroup.GET(BucketContentRoot, h.BucketGet)
-	routeGroup.DELETE(BucketContentRoot, h.BucketDelete)
+	routeGroup.GET(api.BucketsRoot, h.List)
+	routeGroup.GET(api.BucketsRoot+"/", h.List)
+	routeGroup.POST(api.BucketsRoot, h.Create)
+	routeGroup.GET(api.BucketRoot, h.Get)
+	routeGroup.DELETE(api.BucketRoot, h.Delete)
+	routeGroup.POST(api.BucketContentRoot, h.BucketPut)
+	routeGroup.PUT(api.BucketContentRoot, h.BucketPut)
+	routeGroup.GET(api.BucketContentRoot, h.BucketGet)
+	routeGroup.DELETE(api.BucketContentRoot, h.BucketDelete)
 }
 
 // List godoc
@@ -203,20 +195,8 @@ func (h BucketHandler) BucketDelete(ctx *gin.Context) {
 }
 
 //
-// Bucket REST resource.
-type Bucket struct {
-	Resource
-	Path       string     `json:"path"`
-	Expiration *time.Time `json:"expiration,omitempty"`
-}
-
-//
-// With updates the resource with the model.
-func (r *Bucket) With(m *model.Bucket) {
-	r.Resource.With(&m.Model)
-	r.Path = m.Path
-	r.Expiration = m.Expiration
-}
+// REST resource.
+type Bucket = api.Bucket
 
 type BucketOwner struct {
 	BaseHandler

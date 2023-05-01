@@ -11,6 +11,7 @@ const (
 	Name      = "name"
 	Wildcard  = "wildcard"
 	FileField = "file"
+	Filter    = "filter"
 )
 
 //

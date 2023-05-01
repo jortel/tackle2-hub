@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"github.com/konveyor/tackle2-hub/model"
-	tasking "github.com/konveyor/tackle2-hub/task"
 )
 
 //
@@ -39,7 +38,7 @@ func (r *TaskGroup) With(m *model.TaskGroup) {
 	r.Tasks = []Task{}
 	_ = json.Unmarshal(m.Data, &r.Data)
 	switch m.State {
-	case "", tasking.Created:
+	case "", "Created":
 		_ = json.Unmarshal(m.List, &r.Tasks)
 	default:
 		for _, task := range m.Tasks {

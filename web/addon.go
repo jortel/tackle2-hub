@@ -3,17 +3,11 @@ package api
 import (
 	"context"
 	"github.com/gin-gonic/gin"
+	"github.com/konveyor/tackle2-hub/api"
 	crd "github.com/konveyor/tackle2-hub/k8s/api/tackle/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"net/http"
 	k8s "sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-//
-// Routes
-const (
-	AddonsRoot = "/addons"
-	AddonRoot  = AddonsRoot + "/:" + Name
 )
 
 //
@@ -27,9 +21,9 @@ type AddonHandler struct {
 func (h AddonHandler) AddRoutes(e *gin.Engine) {
 	routeGroup := e.Group("/")
 	routeGroup.Use(Required("addons"))
-	routeGroup.GET(AddonsRoot, h.List)
-	routeGroup.GET(AddonsRoot+"/", h.List)
-	routeGroup.GET(AddonRoot, h.Get)
+	routeGroup.GET(api.AddonsRoot, h.List)
+	routeGroup.GET(api.AddonsRoot+"/", h.List)
+	routeGroup.GET(api.AddonRoot, h.Get)
 }
 
 // Get godoc
@@ -84,9 +78,9 @@ func (h AddonHandler) List(ctx *gin.Context) {
 		_ = ctx.Error(err)
 		return
 	}
-	content := []Addon{}
+	content := []api.Addon{}
 	for _, m := range list.Items {
-		addon := Addon{}
+		addon := api.Addon{}
 		addon.With(&m)
 		content = append(content, addon)
 	}
@@ -95,15 +89,5 @@ func (h AddonHandler) List(ctx *gin.Context) {
 }
 
 //
-// Addon REST resource.
-type Addon struct {
-	Name  string `json:"name"`
-	Image string `json:"image"`
-}
-
-//
-// With model.
-func (r *Addon) With(m *crd.Addon) {
-	r.Name = m.Name
-	r.Image = m.Spec.Image
-}
+// REST Resources
+type Addon = api.Addon

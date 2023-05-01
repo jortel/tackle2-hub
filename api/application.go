@@ -177,14 +177,14 @@ type Stakeholders struct {
 	Contributors []Ref `json:"contributors"`
 }
 
-func (r *Stakeholders) ownerID() (ownerID *uint) {
+func (r *Stakeholders) OwnerID() (ownerID *uint) {
 	if r.Owner != nil {
 		ownerID = &r.Owner.ID
 	}
 	return
 }
 
-func (r *Stakeholders) contributors() (contributors []model.Stakeholder) {
+func (r *Stakeholders) GetContributors() (contributors []model.Stakeholder) {
 	for _, ref := range r.Contributors {
 		contributors = append(
 			contributors,

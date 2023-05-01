@@ -2,15 +2,9 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/konveyor/tackle2-hub/api"
 	"github.com/konveyor/tackle2-hub/auth"
 	"net/http"
-)
-
-//
-// Routes
-const (
-	AuthRoot      = "/auth"
-	AuthLoginRoot = AuthRoot + "/login"
 )
 
 //
@@ -22,7 +16,7 @@ type AuthHandler struct {
 //
 // AddRoutes adds routes.
 func (h AuthHandler) AddRoutes(e *gin.Engine) {
-	e.POST(AuthLoginRoot, h.Login)
+	e.POST(api.AuthLoginRoot, h.Login)
 }
 
 // Login godoc
@@ -50,14 +44,6 @@ func (h AuthHandler) Login(ctx *gin.Context) {
 	}
 	r.Password = "" // Clear out password from response
 	h.Render(ctx, http.StatusCreated, r)
-}
-
-//
-// Login REST resource.
-type Login struct {
-	User     string `json:"user"`
-	Password string `json:"password,omitempty"`
-	Token    string `json:"token"`
 }
 
 //
@@ -90,3 +76,7 @@ func Required(scope string) func(*gin.Context) {
 		rtx.Scopes = result.Scopes
 	}
 }
+
+//
+// REST Resources
+type Login = api.Login

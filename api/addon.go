@@ -5,6 +5,13 @@ import (
 )
 
 //
+// Routes
+const (
+	AddonsRoot = "/addons"
+	AddonRoot  = AddonsRoot + "/:" + Name
+)
+
+//
 // Addon REST resource.
 type Addon struct {
 	Name  string `json:"name"`
