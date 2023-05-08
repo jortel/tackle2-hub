@@ -29,7 +29,7 @@ type Addon struct {
 		WorkingDir string
 	}
 	//
-	Task int
+	Task uint
 }
 
 func (r *Addon) Load() (err error) {
@@ -48,7 +48,8 @@ func (r *Addon) Load() (err error) {
 		r.Path.WorkingDir = "/tmp"
 	}
 	if s, found := os.LookupEnv(EnvTask); found {
-		r.Task, _ = strconv.Atoi(s)
+		n, _ := strconv.Atoi(s)
+		r.Task = uint(n)
 	}
 
 	return

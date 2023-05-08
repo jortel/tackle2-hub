@@ -4,15 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/konveyor/tackle2-hub/api"
+	"github.com/konveyor/tackle2-hub/binding"
 	"github.com/konveyor/tackle2-hub/task"
 )
 
 //
 // Task API.
 type Task struct {
-	// hub API client.
-	client *Client
-	// Task
+	// API binding.
+	client *binding.RichClient
+	// Task.
 	task *api.Task
 	// Task report.
 	report api.TaskReport
@@ -27,9 +28,7 @@ func (h *Task) Load() {
 			panic(err)
 		}
 	}()
-	h.task = &api.Task{}
-	path := Path(api.TaskRoot).Inject(Params{api.ID: Settings.Addon.Task})
-	err = h.client.Get(path, h.task)
+	h.task, err = h.client.Task.Get(Settings.Addon.Task)
 	return
 }
 
@@ -41,9 +40,7 @@ func (h *Task) Application() (r *api.Application, err error) {
 		err = NotFound{}
 		return
 	}
-	r = &api.Application{}
-	path := Path(api.ApplicationRoot).Inject(Params{api.ID: appRef.ID})
-	err = h.client.Get(path, r)
+	r, err = h.client.Application.Get(appRef.ID)
 	return
 }
 
