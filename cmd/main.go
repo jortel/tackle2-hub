@@ -7,7 +7,8 @@ import (
 	"github.com/jortel/go-utils/logr"
 	"github.com/konveyor/tackle2-hub/api"
 	"github.com/konveyor/tackle2-hub/auth"
-	"github.com/konveyor/tackle2-hub/controller"
+	"github.com/konveyor/tackle2-hub/controller/addon"
+	"github.com/konveyor/tackle2-hub/controller/pod"
 	"github.com/konveyor/tackle2-hub/database"
 	"github.com/konveyor/tackle2-hub/importer"
 	"github.com/konveyor/tackle2-hub/k8s"
@@ -61,8 +62,8 @@ func buildScheme() (err error) {
 }
 
 //
-// addonManager
-func addonManager(db *gorm.DB) (mgr manager.Manager, err error) {
+// newManager
+func newManager() (mgr manager.Manager, err error) {
 	cfg, err := config.GetConfig()
 	if err != nil {
 		err = liberr.Wrap(err)
@@ -74,11 +75,6 @@ func addonManager(db *gorm.DB) (mgr manager.Manager, err error) {
 			MetricsBindAddress: "0",
 			Namespace:          Settings.Hub.Namespace,
 		})
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	err = controller.Add(mgr, db)
 	if err != nil {
 		err = liberr.Wrap(err)
 		return
@@ -102,28 +98,6 @@ func main() {
 	db, err := Setup()
 	if err != nil {
 		panic(err)
-	}
-	if !Settings.Disconnected {
-		//
-		// k8s scheme.
-		err = buildScheme()
-		if err != nil {
-			return
-		}
-		//
-		// Add controller.
-		addonManager, aErr := addonManager(db)
-		if aErr != nil {
-			err = aErr
-			return
-		}
-		go func() {
-			err = addonManager.Start(context.Background())
-			if err != nil {
-				err = liberr.Wrap(err)
-				return
-			}
-		}()
 	}
 	//
 	// k8s client.
@@ -180,6 +154,39 @@ func main() {
 		DB: db,
 	}
 	trackerManager.Run(context.Background())
+	// Controller
+	if !Settings.Disconnected {
+		//
+		// k8s scheme.
+		err = buildScheme()
+		if err != nil {
+			return
+		}
+		//
+		// Add controller.
+		manager, nErr := newManager()
+		if nErr != nil {
+			err = nErr
+			return
+		}
+		err = addon.Add(manager, db)
+		if err != nil {
+			err = liberr.Wrap(err)
+			return
+		}
+		err = pod.Add(manager, &taskManager)
+		if err != nil {
+			err = liberr.Wrap(err)
+			return
+		}
+		go func() {
+			err = manager.Start(context.Background())
+			if err != nil {
+				err = liberr.Wrap(err)
+				return
+			}
+		}()
+	}
 	//
 	// Metrics
 	if Settings.Metrics.Enabled {

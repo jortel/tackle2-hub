@@ -179,6 +179,50 @@ func (m *Manager) startReady() {
 }
 
 //
+// PodDeleted
+func (m *Manager) PodDeleted(name string) (err error) {
+	tm := &model.Task{}
+	err = m.DB.First(tm, "pod", name).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+		return
+	}
+	return
+}
+
+//
+// PodChanged
+func (m *Manager) PodChanged(pod *core.Pod) (err error) {
+	id, found := pod.Labels["task"]
+	if !found {
+		return
+	}
+	tm := &model.Task{}
+	err = m.DB.First(tm, id).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+		return
+	}
+	rt := Task{tm}
+	err = rt.Reflect(m.Client)
+	if err != nil {
+		Log.Error(err, "")
+		return
+	}
+	err = m.DB.Save(&tm).Error
+	if err != nil {
+		Log.Error(err, "")
+		return
+	}
+	Log.V(1).Info("Task updated.", "id", id)
+	return
+}
+
+//
 // updateRunning tasks to reflect pod state.
 func (m *Manager) updateRunning() {
 	list := []model.Task{}
