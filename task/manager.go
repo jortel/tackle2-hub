@@ -44,6 +44,11 @@ const (
 	Unit = time.Second
 )
 
+const (
+	Shared = "shared"
+	Cache  = "cache"
+)
+
 var (
 	Settings = &settings.Settings
 	Log      = logr.WithName("task-scheduler")
@@ -335,35 +340,15 @@ func (r *Task) Reflect(client k8s.Client) (err error) {
 		}
 		return
 	}
-	mark := time.Now()
-	status := pod.Status
-	switch status.Phase {
+	switch pod.Status.Phase {
+	case core.PodPending:
+		r.podPending(pod)
 	case core.PodRunning:
-		r.State = Running
+		r.podRunning(pod, client)
 	case core.PodSucceeded:
-		r.State = Succeeded
-		r.Terminated = &mark
+		r.podSucceeded(pod)
 	case core.PodFailed:
-		r.Error(
-			"Error",
-			"Pod failed: %s",
-			pod.Status.ContainerStatuses[0].State.Terminated.Reason)
-		switch pod.Status.ContainerStatuses[0].State.Terminated.ExitCode {
-		case 137: // Killed.
-			if r.Retries < Settings.Hub.Task.Retries {
-				_ = client.Delete(context.TODO(), pod)
-				r.Pod = ""
-				r.State = Ready
-				r.Errors = nil
-				r.Retries++
-			} else {
-				r.State = Failed
-				r.Terminated = &mark
-			}
-		default:
-			r.State = Failed
-			r.Terminated = &mark
-		}
+		r.podFailed(pod, client)
 	}
 
 	return
@@ -396,6 +381,86 @@ func (r *Task) Delete(client k8s.Client) (err error) {
 	mark := time.Now()
 	r.Terminated = &mark
 	return
+}
+
+// podPending handles pod pending.
+func (r *Task) podPending(pod *core.Pod) {
+	for _, status := range pod.Status.InitContainerStatuses {
+		if status.Started == nil {
+			continue
+		}
+		if *status.Started {
+			r.State = Running
+			return
+		}
+	}
+}
+
+// podRunning handles pod running.
+func (r *Task) podRunning(pod *core.Pod, client k8s.Client) {
+	var statuses []core.ContainerStatus
+	statuses = append(
+		statuses,
+		pod.Status.InitContainerStatuses...)
+	statuses = append(
+		statuses,
+		pod.Status.ContainerStatuses...)
+	for _, status := range statuses {
+		if status.State.Terminated == nil {
+			continue
+		}
+		switch status.State.Terminated.ExitCode {
+		case 0: // Succeeded.
+		default: // failed.
+			r.podFailed(pod, client)
+		}
+	}
+}
+
+// podFailed handles pod succeeded.
+func (r *Task) podSucceeded(pod *core.Pod) {
+	mark := time.Now()
+	r.State = Succeeded
+	r.Terminated = &mark
+}
+
+// podFailed handles pod failed.
+func (r *Task) podFailed(pod *core.Pod, client k8s.Client) {
+	mark := time.Now()
+	var statuses []core.ContainerStatus
+	statuses = append(
+		statuses,
+		pod.Status.InitContainerStatuses...)
+	statuses = append(
+		statuses,
+		pod.Status.ContainerStatuses...)
+	for _, status := range statuses {
+		if status.State.Terminated == nil {
+			continue
+		}
+		switch status.State.Terminated.ExitCode {
+		case 0: // Succeeded.
+		case 137: // Killed.
+			if r.Retries < Settings.Hub.Task.Retries {
+				_ = client.Delete(context.TODO(), pod)
+				r.Pod = ""
+				r.State = Ready
+				r.Errors = nil
+				r.Retries++
+				return
+			}
+			fallthrough
+		default: // Error.
+			r.State = Failed
+			r.Terminated = &mark
+			r.Error(
+				"Error",
+				"Container (%s) failed: %s",
+				status.Name,
+				status.State.Terminated.Reason)
+			return
+		}
+	}
 }
 
 // Cancel the task.
@@ -478,8 +543,14 @@ func (r *Task) pod(addon *crd.Addon, owner *crd.Tackle, secret *core.Secret) (po
 
 // specification builds a Pod specification.
 func (r *Task) specification(addon *crd.Addon, secret *core.Secret) (specification core.PodSpec) {
+	shared := core.Volume{
+		Name: Shared,
+		VolumeSource: core.VolumeSource{
+			EmptyDir: &core.EmptyDirVolumeSource{},
+		},
+	}
 	cache := core.Volume{
-		Name: "cache",
+		Name: Cache,
 	}
 	if Settings.Cache.RWX {
 		cache.VolumeSource = core.VolumeSource{
@@ -499,6 +570,7 @@ func (r *Task) specification(addon *crd.Addon, secret *core.Secret) (specificati
 			r.container(addon, secret),
 		},
 		Volumes: []core.Volume{
+			shared,
 			cache,
 		},
 	}
@@ -509,47 +581,44 @@ func (r *Task) specification(addon *crd.Addon, secret *core.Secret) (specificati
 // container builds the pod container.
 func (r *Task) container(addon *crd.Addon, secret *core.Secret) (container core.Container) {
 	userid := int64(0)
-	policy := core.PullIfNotPresent
-	if addon.Spec.ImagePullPolicy != "" {
-		policy = addon.Spec.ImagePullPolicy
-	}
-	container = core.Container{
-		Name:            "main",
-		Image:           r.Image,
-		ImagePullPolicy: policy,
-		Resources:       addon.Spec.Resources,
-		Env: []core.EnvVar{
-			{
-				Name:  settings.EnvHubBaseURL,
-				Value: Settings.Addon.Hub.URL,
+	token := &core.EnvVarSource{
+		SecretKeyRef: &core.SecretKeySelector{
+			Key: settings.EnvHubToken,
+			LocalObjectReference: core.LocalObjectReference{
+				Name: secret.Name,
 			},
-			{
-				Name:  settings.EnvTask,
-				Value: strconv.Itoa(int(r.Task.ID)),
-			},
-			{
-				Name: settings.EnvHubToken,
-				ValueFrom: &core.EnvVarSource{
-					SecretKeyRef: &core.SecretKeySelector{
-						Key: settings.EnvHubToken,
-						LocalObjectReference: core.LocalObjectReference{
-							Name: secret.Name,
-						},
-					},
-				},
-			},
-		},
-		VolumeMounts: []core.VolumeMount{
-			{
-				Name:      "cache",
-				MountPath: Settings.Cache.Path,
-			},
-		},
-		SecurityContext: &core.SecurityContext{
-			RunAsUser: &userid,
 		},
 	}
-
+	if container.ImagePullPolicy == "" {
+		container.ImagePullPolicy = core.PullAlways
+	}
+	container.SecurityContext = &core.SecurityContext{
+		RunAsUser: &userid,
+	}
+	container.VolumeMounts = append(
+		container.VolumeMounts,
+		core.VolumeMount{
+			Name:      Shared,
+			MountPath: Settings.Shared.Path,
+		},
+		core.VolumeMount{
+			Name:      Cache,
+			MountPath: Settings.Cache.Path,
+		})
+	container.Env = append(
+		container.Env,
+		core.EnvVar{
+			Name:  settings.EnvHubBaseURL,
+			Value: Settings.Addon.Hub.URL,
+		},
+		core.EnvVar{
+			Name:  settings.EnvTask,
+			Value: strconv.Itoa(int(r.Task.ID)),
+		},
+		core.EnvVar{
+			Name:      settings.EnvHubToken,
+			ValueFrom: token,
+		})
 	return
 }
 
