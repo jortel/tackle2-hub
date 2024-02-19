@@ -14,8 +14,10 @@ import (
 	tasking "github.com/konveyor/tackle2-hub/task"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	core "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/utils/strings/slices"
+	k8s "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Routes
@@ -520,7 +522,6 @@ type Task struct {
 	Name        string       `json:"name"`
 	Locator     string       `json:"locator,omitempty" yaml:",omitempty"`
 	Priority    int          `json:"priority,omitempty" yaml:",omitempty"`
-	Variant     string       `json:"variant,omitempty" yaml:",omitempty"`
 	Policy      string       `json:"policy,omitempty" yaml:",omitempty"`
 	TTL         *TTL         `json:"ttl,omitempty" yaml:",omitempty"`
 	Addon       string       `json:"addon,omitempty" binding:"required" yaml:",omitempty"`
@@ -549,7 +550,6 @@ func (r *Task) With(m *model.Task) {
 	r.Locator = m.Locator
 	r.Priority = m.Priority
 	r.Policy = m.Policy
-	r.Variant = m.Variant
 	r.Application = r.refPtr(m.ApplicationID, m.Application)
 	r.Bucket = r.refPtr(m.BucketID, m.Bucket)
 	r.State = m.State
@@ -587,7 +587,6 @@ func (r *Task) Model() (m *model.Task) {
 		Name:          r.Name,
 		Addon:         r.Addon,
 		Locator:       r.Locator,
-		Variant:       r.Variant,
 		Priority:      r.Priority,
 		Policy:        r.Policy,
 		State:         r.State,
@@ -709,4 +708,10 @@ type Attachment struct {
 	// Activity index (1-based) association with an
 	// activity entry. Zero(0) indicates not associated.
 	Activity int `json:"activity,omitempty" yaml:",omitempty"`
+}
+
+func init() {
+	tasking.VariantMap["analysis"] = func(client k8s.Client, pod *core.PodSpec) (err error) {
+		return
+	}
 }
