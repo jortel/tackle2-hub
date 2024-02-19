@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	liberr "github.com/jortel/go-utils/error"
+	crd "github.com/konveyor/tackle2-hub/k8s/api/tackle/v1alpha1"
 	"github.com/konveyor/tackle2-hub/model"
 	tasking "github.com/konveyor/tackle2-hub/task"
 	"gorm.io/gorm"
@@ -710,8 +713,44 @@ type Attachment struct {
 	Activity int `json:"activity,omitempty" yaml:",omitempty"`
 }
 
+// data:
+//
+//	providers:
+//	  - java
+//	  - xml
 func init() {
-	tasking.VariantMap["analysis"] = func(client k8s.Client, pod *core.PodSpec) (err error) {
+	variant := func(
+		client k8s.Client,
+		task *model.Task,
+		pod *core.PodSpec) (err error) {
+		type Data struct {
+			Providers []string `json:"providers"`
+		}
+		d := &Data{}
+		err = json.Unmarshal(task.Data, d)
+		if err != nil {
+			err = liberr.Wrap(err)
+			return
+		}
+		for _, name := range d.Providers {
+			p := &crd.Provider{}
+			err = client.Get(
+				context.TODO(),
+				k8s.ObjectKey{
+					Namespace: Settings.Hub.Namespace,
+					Name:      name,
+				},
+				p)
+			if err != nil {
+				err = liberr.Wrap(err)
+				return
+			}
+			pod.Containers = append(
+				pod.Containers,
+				p.Spec.Container)
+		}
+
 		return
 	}
+	tasking.Variants["analyzer"] = variant
 }

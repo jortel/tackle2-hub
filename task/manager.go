@@ -50,9 +50,8 @@ const (
 )
 
 var (
-	Settings   = &settings.Settings
-	Log        = logr.WithName("task-scheduler")
-	VariantMap = map[string]Variant{}
+	Settings = &settings.Settings
+	Log      = logr.WithName("task-scheduler")
 )
 
 // AddonNotFound used to report addon referenced
@@ -69,8 +68,6 @@ func (e *AddonNotFound) Is(err error) (matched bool) {
 	_, matched = err.(*AddonNotFound)
 	return
 }
-
-type Variant func(client k8s.Client, pod *core.PodSpec) (err error)
 
 // Manager provides task management.
 type Manager struct {
@@ -294,8 +291,8 @@ func (r *Task) Run(client k8s.Client) (err error) {
 		}
 	}()
 	pod := r.pod(addon, owner, &secret)
-	if variant, found := VariantMap[r.Addon]; found {
-		err = variant(client, &pod.Spec)
+	if variant, found := Variants[r.Addon]; found {
+		err = variant(client, r.Task, &pod.Spec)
 		if err != nil {
 			err = liberr.Wrap(err)
 			return
@@ -599,6 +596,9 @@ func (r *Task) container(addon *crd.Addon, secret *core.Secret) (container core.
 			},
 		},
 	}
+	container.Name = "main"
+	container.Image = addon.Spec.Image
+	container.ImagePullPolicy = addon.Spec.ImagePullPolicy
 	container.SecurityContext = &core.SecurityContext{
 		RunAsUser: &userid,
 	}
