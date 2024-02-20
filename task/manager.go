@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path"
 	"strconv"
 	"time"
@@ -12,6 +14,7 @@ import (
 	liberr "github.com/jortel/go-utils/error"
 	"github.com/jortel/go-utils/logr"
 	"github.com/konveyor/tackle2-hub/auth"
+	k8s2 "github.com/konveyor/tackle2-hub/k8s"
 	crd "github.com/konveyor/tackle2-hub/k8s/api/tackle/v1alpha1"
 	"github.com/konveyor/tackle2-hub/metrics"
 	"github.com/konveyor/tackle2-hub/model"
@@ -429,6 +432,7 @@ func (r *Task) podSucceeded(pod *core.Pod) {
 	mark := time.Now()
 	r.State = Succeeded
 	r.Terminated = &mark
+
 }
 
 // podFailed handles pod failed.
@@ -550,6 +554,8 @@ func (r *Task) pod(addon *crd.Addon, owner *crd.Tackle, secret *core.Secret) (po
 
 // specification builds a Pod specification.
 func (r *Task) specification(addon *crd.Addon, secret *core.Secret) (specification core.PodSpec) {
+	sharedProcess := true
+	specification.ShareProcessNamespace = &sharedProcess
 	shared := core.Volume{
 		Name: Shared,
 		VolumeSource: core.VolumeSource{
@@ -664,4 +670,43 @@ func (r *Task) labels() map[string]string {
 		"app":  "tackle",
 		"role": "task",
 	}
+}
+
+// podLog - get and store pod log as a File.
+func (r *Task) podLog(db *gorm.DB) (file *model.File, err error) {
+	options := &core.PodLogOptions{}
+	clientSet, err := k8s2.NewClientSet()
+	if err != nil {
+		return
+	}
+	podClient := clientSet.CoreV1().Pods(Settings.Hub.Namespace)
+	req := podClient.GetLogs(r.Pod, options)
+	reader, err := req.Stream(context.TODO())
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	defer func() {
+		_ = reader.Close()
+	}()
+	file = &model.File{Name: "pod.log"}
+	err = db.Create(&file).Error
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	writer, err := os.Create(file.Path)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	defer func() {
+		_ = writer.Close()
+	}()
+	_, err = io.Copy(writer, reader)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	return
 }
