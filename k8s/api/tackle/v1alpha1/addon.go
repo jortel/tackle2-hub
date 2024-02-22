@@ -19,18 +19,19 @@ package v1alpha1
 import (
 	core "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // AddonSpec defines the desired state of Addon
 type AddonSpec struct {
-	// Addon fqin.
-	Image string `json:"image"`
-	// ImagePullPolicy an optional image pull policy.
-	// +kubebuilder:default=IfNotPresent
-	// +kubebuilder:validation:Enum=IfNotPresent;Always;Never
-	ImagePullPolicy core.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// Addon kind.
+	// +kubebuilder:default=command
+	// +kubebuilder:validation:Enum=init;daemon;command
+	Kind string `json:"kind,omitempty"`
+	// Addon container.
+	Container core.Container `json:"container,omitempty"`
 	// Resource requirements.
-	Resources core.ResourceRequirements `json:"resources,omitempty"`
+	Configuration map[string]runtime.RawExtension `json:"configuration,omitempty"`
 }
 
 // AddonStatus defines the observed state of Addon

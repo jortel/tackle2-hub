@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
@@ -11,16 +10,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	liberr "github.com/jortel/go-utils/error"
-	crd "github.com/konveyor/tackle2-hub/k8s/api/tackle/v1alpha1"
 	"github.com/konveyor/tackle2-hub/model"
 	tasking "github.com/konveyor/tackle2-hub/task"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	core "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/utils/strings/slices"
-	k8s "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Routes
@@ -522,12 +517,12 @@ type TaskError struct {
 // Task REST resource.
 type Task struct {
 	Resource    `yaml:",inline"`
+	Kind        string       `json:"kind"`
 	Name        string       `json:"name"`
 	Locator     string       `json:"locator,omitempty" yaml:",omitempty"`
 	Priority    int          `json:"priority,omitempty" yaml:",omitempty"`
 	Policy      string       `json:"policy,omitempty" yaml:",omitempty"`
 	TTL         *TTL         `json:"ttl,omitempty" yaml:",omitempty"`
-	Addon       string       `json:"addon,omitempty" binding:"required" yaml:",omitempty"`
 	Data        interface{}  `json:"data" swaggertype:"object" binding:"required"`
 	Application *Ref         `json:"application,omitempty" yaml:",omitempty"`
 	State       string       `json:"state"`
@@ -547,9 +542,8 @@ type Task struct {
 // With updates the resource with the model.
 func (r *Task) With(m *model.Task) {
 	r.Resource.With(&m.Model)
+	r.Kind = m.Kind
 	r.Name = m.Name
-	r.Image = m.Image
-	r.Addon = m.Addon
 	r.Locator = m.Locator
 	r.Priority = m.Priority
 	r.Policy = m.Policy
@@ -568,12 +562,15 @@ func (r *Task) With(m *model.Task) {
 	if m.Errors != nil {
 		_ = json.Unmarshal(m.Errors, &r.Errors)
 	}
+	if m.Attached != nil {
+		_ = json.Unmarshal(m.Attached, &r.Attached)
+	}
 	if m.Report != nil {
 		report := &TaskReport{}
 		report.With(m.Report)
 		r.Activity = report.Activity
 		r.Errors = append(report.Errors, r.Errors...)
-		r.Attached = report.Attached
+		r.Attached = append(report.Attached, r.Attached...)
 		switch r.State {
 		case tasking.Succeeded:
 			switch report.Status {
@@ -587,8 +584,8 @@ func (r *Task) With(m *model.Task) {
 // Model builds a model.
 func (r *Task) Model() (m *model.Task) {
 	m = &model.Task{
+		Kind:          r.Kind,
 		Name:          r.Name,
-		Addon:         r.Addon,
 		Locator:       r.Locator,
 		Priority:      r.Priority,
 		Policy:        r.Policy,
@@ -711,46 +708,4 @@ type Attachment struct {
 	// Activity index (1-based) association with an
 	// activity entry. Zero(0) indicates not associated.
 	Activity int `json:"activity,omitempty" yaml:",omitempty"`
-}
-
-// data:
-//
-//	providers:
-//	  - java
-//	  - xml
-func init() {
-	variant := func(
-		client k8s.Client,
-		task *model.Task,
-		pod *core.PodSpec) (err error) {
-		type Data struct {
-			Providers []string `json:"providers"`
-		}
-		d := &Data{}
-		err = json.Unmarshal(task.Data, d)
-		if err != nil {
-			err = liberr.Wrap(err)
-			return
-		}
-		for _, name := range d.Providers {
-			p := &crd.Provider{}
-			err = client.Get(
-				context.TODO(),
-				k8s.ObjectKey{
-					Namespace: Settings.Hub.Namespace,
-					Name:      name,
-				},
-				p)
-			if err != nil {
-				err = liberr.Wrap(err)
-				return
-			}
-			pod.Containers = append(
-				pod.Containers,
-				p.Spec.Container)
-		}
-
-		return
-	}
-	tasking.Variants["analyzer"] = variant
 }

@@ -17,18 +17,26 @@ limitations under the License.
 package v1alpha1
 
 import (
-	core "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ProviderSpec defines the desired state of Provider
-type ProviderSpec struct {
-	// Container fqin.
-	Container core.Container `json:"container"`
+type Tag struct {
+	Category string `json:"category"`
+	Label    string `json:"label"`
 }
 
-// ProviderStatus defines the observed state of Provider
-type ProviderStatus struct {
+type Match struct {
+	Tag []Tag `json:"tag,omitempty"`
+}
+
+// TaskSpec defines the desired state of Task
+type TaskSpec struct {
+	// Task kind.
+	Match Match `json:"match,omitempty"`
+}
+
+// TaskStatus defines the observed state of Task
+type TaskStatus struct {
 	// The most recent generation observed by the controller.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -40,20 +48,20 @@ type ProviderStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="READY",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
-type Provider struct {
+type Task struct {
 	meta.TypeMeta   `json:",inline"`
 	meta.ObjectMeta `json:"metadata,omitempty"`
-	Spec            ProviderSpec   `json:"spec,omitempty"`
-	Status          ProviderStatus `json:"status,omitempty"`
+	Spec            TaskSpec   `json:"spec,omitempty"`
+	Status          TaskStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-type ProviderList struct {
+type TaskList struct {
 	meta.TypeMeta `json:",inline"`
 	meta.ListMeta `json:"metadata,omitempty"`
-	Items         []Provider `json:"items"`
+	Items         []Task `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Provider{}, &ProviderList{})
+	SchemeBuilder.Register(&Task{}, &TaskList{})
 }
