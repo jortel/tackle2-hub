@@ -3,7 +3,6 @@ package task
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -74,7 +73,7 @@ type NotFound struct {
 }
 
 func (e *NotFound) Error() (s string) {
-	return fmt.Sprintf("Addon: '%s' not-found.", e.Name)
+	return fmt.Sprintf("Task (kind): '%s' not-found.", e.Name)
 }
 
 func (e *NotFound) Is(err error) (matched bool) {
@@ -189,12 +188,9 @@ func (m *Manager) startReady() {
 			rt := Task{ready}
 			err := rt.Run(m.Client)
 			if err != nil {
-				if errors.Is(err, &NotFound{}) || errors.Is(err, &NoAddonsMatched{}) {
-					ready.Error("Error", err.Error())
-					ready.State = Failed
-					sErr := m.db().Save(ready).Error
-					Log.Error(sErr, "")
-				}
+				ready.State = Failed
+				sErr := m.db().Save(ready).Error
+				Log.Error(sErr, "")
 				Log.Error(err, "")
 				continue
 			}
@@ -236,7 +232,7 @@ func (m *Manager) updateRunning() {
 			continue
 		}
 		if rt.State == Succeeded || rt.State == Failed {
-			err = m.snapshotPod(&running, pod)
+			err = m.snapshotPod(&rt, pod)
 			if err != nil {
 				Log.Error(err, "")
 				continue
@@ -299,7 +295,7 @@ func (m *Manager) canceled(task *model.Task) {
 }
 
 // snapshotPod attaches a pod description and logs.
-func (m *Manager) snapshotPod(task *model.Task, pod *core.Pod) (err error) {
+func (m *Manager) snapshotPod(task *Task, pod *core.Pod) (err error) {
 	var files []*model.File
 	d, err := m.podDescription(pod)
 	if err != nil {
@@ -312,7 +308,7 @@ func (m *Manager) snapshotPod(task *model.Task, pod *core.Pod) (err error) {
 	}
 	files = append(files, logs...)
 	for _, f := range files {
-		m.attach(task, f)
+		task.attach(f)
 	}
 	Log.V(1).Info("Task pod snapshot attached.", "id", task.ID)
 	return
@@ -392,19 +388,6 @@ func (m *Manager) containerLog(pod *core.Pod, container string) (file *model.Fil
 		return
 	}
 	return
-}
-
-// attach file.
-func (m *Manager) attach(task *model.Task, file *model.File) {
-	attached := []model.Ref{}
-	_ = json.Unmarshal(task.Attached, &attached)
-	attached = append(
-		attached,
-		model.Ref{
-			ID:   file.ID,
-			Name: file.Name,
-		})
-	task.Attached, _ = json.Marshal(attached)
 }
 
 // Task is an runtime task.
@@ -855,4 +838,17 @@ func (r *Task) labels() map[string]string {
 		"app":  "tackle",
 		"role": "task",
 	}
+}
+
+// attach file.
+func (r *Task) attach(file *model.File) {
+	attached := []model.Ref{}
+	_ = json.Unmarshal(r.Attached, &attached)
+	attached = append(
+		attached,
+		model.Ref{
+			ID:   file.ID,
+			Name: file.Name,
+		})
+	r.Attached, _ = json.Marshal(attached)
 }
