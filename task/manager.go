@@ -189,12 +189,10 @@ func (m *Manager) startReady() {
 			err := rt.Run(m.Client)
 			if err != nil {
 				ready.State = Failed
-				sErr := m.db().Save(ready).Error
-				Log.Error(sErr, "")
 				Log.Error(err, "")
-				continue
+			} else {
+				Log.Info("Task started.", "id", ready.ID)
 			}
-			Log.Info("Task started.", "id", ready.ID)
 			err = m.db().Save(ready).Error
 			Log.Error(err, "")
 		default:
