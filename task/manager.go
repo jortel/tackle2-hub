@@ -514,7 +514,7 @@ func (r *Task) Delete(client k8s.Client) (err error) {
 	pod := &core.Pod{}
 	pod.Namespace = path.Dir(r.Pod)
 	pod.Name = path.Base(r.Pod)
-	err = client.Delete(context.TODO(), pod)
+	err = client.Delete(context.TODO(), pod, k8s.GracePeriodSeconds(0))
 	if err != nil {
 		if !k8serr.IsNotFound(err) {
 			err = liberr.Wrap(err)
@@ -665,6 +665,7 @@ func (r *Task) findAddons(client k8s.Client) (addons []crd.Addon, err error) {
 	err = client.List(
 		context.TODO(),
 		&addonList,
+		k8s.InNamespace(Settings.Hub.Namespace),
 		k8s.MatchingLabels{
 			TaskLabel: r.Kind,
 		})
