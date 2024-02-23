@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"github.com/konveyor/tackle2-hub/metrics"
 	"github.com/konveyor/tackle2-hub/model"
 	"github.com/konveyor/tackle2-hub/settings"
+	"gopkg.in/yaml.v2"
 	"gorm.io/gorm"
 	core "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -31,6 +33,7 @@ const (
 	AddonInit    = "init"
 	AddonDaemon  = "daemon"
 	AddonCommand = "command"
+	AddonKindEnv = "ADDON_KIND"
 )
 
 // States
@@ -64,33 +67,32 @@ var (
 	Log      = logr.WithName("task-scheduler")
 )
 
-// TaskNotFound used to report kind referenced
+// NotFound used to report kind referenced
 // by a task but cannot be found.
-type TaskNotFound struct {
+type NotFound struct {
 	Name string
 }
 
-func (e *TaskNotFound) Error() (s string) {
+func (e *NotFound) Error() (s string) {
 	return fmt.Sprintf("Addon: '%s' not-found.", e.Name)
 }
 
-func (e *TaskNotFound) Is(err error) (matched bool) {
-	_, matched = err.(*TaskNotFound)
+func (e *NotFound) Is(err error) (matched bool) {
+	_, matched = err.(*NotFound)
 	return
 }
 
-// AddonNotFound used to report addon referenced
-// by a task but cannot be found.
-type AddonNotFound struct {
-	Name string
+// NoAddonsMatched used to report task kind not matched to addons.
+type NoAddonsMatched struct {
+	Task string
 }
 
-func (e *AddonNotFound) Error() (s string) {
-	return fmt.Sprintf("Addon: '%s' not-found.", e.Name)
+func (e *NoAddonsMatched) Error() (s string) {
+	return fmt.Sprintf("Task: '%s' no kind=%s addons matched.", AddonCommand, e.Task)
 }
 
-func (e *AddonNotFound) Is(err error) (matched bool) {
-	_, matched = err.(*AddonNotFound)
+func (e *NoAddonsMatched) Is(err error) (matched bool) {
+	_, matched = err.(*NoAddonsMatched)
 	return
 }
 
@@ -127,6 +129,11 @@ func (m *Manager) Run(ctx context.Context) {
 	}()
 }
 
+func (m *Manager) db() (db *gorm.DB) {
+	db = m.DB.Session(&gorm.Session{})
+	return
+}
+
 // Pause.
 func (m *Manager) pause() {
 	d := Unit * time.Duration(Settings.Frequency.Task)
@@ -136,7 +143,7 @@ func (m *Manager) pause() {
 // startReady starts pending tasks.
 func (m *Manager) startReady() {
 	list := []model.Task{}
-	db := m.DB.Order("priority DESC, id")
+	db := m.db().Order("priority DESC, id")
 	result := db.Find(
 		&list,
 		"state IN ?",
@@ -157,7 +164,7 @@ func (m *Manager) startReady() {
 			task.State = Failed
 			task.Terminated = &mark
 			task.Error("Error", "Hub is disconnected.")
-			sErr := m.DB.Save(task).Error
+			sErr := m.db().Save(task).Error
 			Log.Error(sErr, "")
 			continue
 		}
@@ -172,7 +179,7 @@ func (m *Manager) startReady() {
 			if m.postpone(ready, list) {
 				ready.State = Postponed
 				Log.Info("Task postponed.", "id", ready.ID)
-				sErr := m.DB.Save(ready).Error
+				sErr := m.db().Save(ready).Error
 				Log.Error(sErr, "")
 				continue
 			}
@@ -182,17 +189,17 @@ func (m *Manager) startReady() {
 			rt := Task{ready}
 			err := rt.Run(m.Client)
 			if err != nil {
-				if errors.Is(err, &AddonNotFound{}) {
+				if errors.Is(err, &NotFound{}) || errors.Is(err, &NoAddonsMatched{}) {
 					ready.Error("Error", err.Error())
 					ready.State = Failed
-					sErr := m.DB.Save(ready).Error
+					sErr := m.db().Save(ready).Error
 					Log.Error(sErr, "")
 				}
 				Log.Error(err, "")
 				continue
 			}
 			Log.Info("Task started.", "id", ready.ID)
-			err = m.DB.Save(ready).Error
+			err = m.db().Save(ready).Error
 			Log.Error(err, "")
 		default:
 			// Ignored.
@@ -205,7 +212,7 @@ func (m *Manager) startReady() {
 // updateRunning tasks to reflect pod state.
 func (m *Manager) updateRunning() {
 	list := []model.Task{}
-	db := m.DB.Order("priority DESC, id")
+	db := m.db().Order("priority DESC, id")
 	result := db.Find(
 		&list,
 		"state IN ?",
@@ -223,12 +230,24 @@ func (m *Manager) updateRunning() {
 			continue
 		}
 		rt := Task{&running}
-		err := rt.Reflect(m.Client)
+		pod, err := rt.Reflect(m.Client)
 		if err != nil {
 			Log.Error(err, "")
 			continue
 		}
-		err = m.DB.Save(&running).Error
+		if rt.State == Succeeded || rt.State == Failed {
+			err = m.snapshotPod(&running, pod)
+			if err != nil {
+				Log.Error(err, "")
+				continue
+			}
+			err = rt.Delete(m.Client)
+			if err != nil {
+				Log.Error(err, "")
+				continue
+			}
+		}
+		err = m.db().Save(&running).Error
 		if err != nil {
 			Log.Error(result.Error, "")
 			continue
@@ -271,12 +290,121 @@ func (m *Manager) canceled(task *model.Task) {
 	if err != nil {
 		return
 	}
-	err = m.DB.Save(task).Error
+	err = m.db().Save(task).Error
 	Log.Error(err, "")
-	db := m.DB.Model(&model.TaskReport{})
+	db := m.db().Model(&model.TaskReport{})
 	err = db.Delete("taskid", task.ID).Error
 	Log.Error(err, "")
 	return
+}
+
+// snapshotPod attaches a pod description and logs.
+func (m *Manager) snapshotPod(task *model.Task, pod *core.Pod) (err error) {
+	var files []*model.File
+	d, err := m.podDescription(pod)
+	if err != nil {
+		return
+	}
+	files = append(files, d)
+	logs, err := m.podLogs(pod)
+	if err != nil {
+		return
+	}
+	files = append(files, logs...)
+	for _, f := range files {
+		m.attach(task, f)
+	}
+	Log.V(1).Info("Task pod snapshot attached.", "id", task.ID)
+	return
+}
+
+// podDescription builds pod resource description.
+func (m *Manager) podDescription(pod *core.Pod) (file *model.File, err error) {
+	file = &model.File{Name: "pod"}
+	err = m.db().Create(file).Error
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	f, err := os.Create(file.Path)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	b, _ := yaml.Marshal(pod)
+	_, _ = f.Write(b)
+	return
+}
+
+// podLogs - get and store pod logs as a Files.
+func (m *Manager) podLogs(pod *core.Pod) (files []*model.File, err error) {
+	for _, container := range pod.Spec.Containers {
+		f, nErr := m.containerLog(pod, container.Name)
+		if nErr == nil {
+			files = append(files, f)
+		} else {
+			err = nErr
+			return
+		}
+	}
+	return
+}
+
+// containerLog - get container log and store in file.
+func (m *Manager) containerLog(pod *core.Pod, container string) (file *model.File, err error) {
+	options := &core.PodLogOptions{
+		Container: container,
+	}
+	clientSet, err := k8s2.NewClientSet()
+	if err != nil {
+		return
+	}
+	podClient := clientSet.CoreV1().Pods(Settings.Hub.Namespace)
+	req := podClient.GetLogs(pod.Name, options)
+	reader, err := req.Stream(context.TODO())
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	defer func() {
+		_ = reader.Close()
+	}()
+	file = &model.File{Name: container + ".log"}
+	err = m.db().Create(file).Error
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	f, err := os.Create(file.Path)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	_, err = io.Copy(f, reader)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	return
+}
+
+// attach file.
+func (m *Manager) attach(task *model.Task, file *model.File) {
+	attached := []model.Ref{}
+	_ = json.Unmarshal(task.Attached, &attached)
+	attached = append(
+		attached,
+		model.Ref{
+			ID:   file.ID,
+			Name: file.Name,
+		})
+	task.Attached, _ = json.Marshal(attached)
 }
 
 // Task is an runtime task.
@@ -347,8 +475,8 @@ func (r *Task) Run(client k8s.Client) (err error) {
 }
 
 // Reflect finds the associated pod and updates the task state.
-func (r *Task) Reflect(client k8s.Client) (err error) {
-	pod := &core.Pod{}
+func (r *Task) Reflect(client k8s.Client) (pod *core.Pod, err error) {
+	pod = &core.Pod{}
 	err = client.Get(
 		context.TODO(),
 		k8s.ObjectKey{
@@ -420,24 +548,52 @@ func (r *Task) podPending(pod *core.Pod) {
 	}
 }
 
+// Cancel the task.
+func (r *Task) Cancel(client k8s.Client) (err error) {
+	err = r.Delete(client)
+	if err != nil {
+		return
+	}
+	r.State = Canceled
+	r.SetBucket(nil)
+	Log.Info(
+		"Task canceled.",
+		"id",
+		r.ID)
+	return
+}
+
 // podRunning handles pod running.
 func (r *Task) podRunning(pod *core.Pod, client k8s.Client) {
-	var statuses []core.ContainerStatus
-	statuses = append(
-		statuses,
-		pod.Status.InitContainerStatuses...)
-	statuses = append(
-		statuses,
-		pod.Status.ContainerStatuses...)
-	for _, status := range statuses {
-		if status.State.Terminated == nil {
-			continue
+	command := map[string]bool{}
+	for _, container := range pod.Spec.Containers {
+		for _, env := range container.Env {
+			if env.Name == AddonKindEnv && env.Value == AddonCommand {
+				command[container.Name] = false
+			}
 		}
-		switch status.State.Terminated.ExitCode {
-		case 0: // Succeeded.
-		default: // failed.
-			r.podFailed(pod, client)
+	}
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.State.Terminated != nil {
+			switch status.State.Terminated.ExitCode {
+			case 0:
+				if _, found := command[status.Name]; found {
+					command[status.Name] = true
+				}
+			default: // failed.
+				r.podFailed(pod, client)
+				return
+			}
 		}
+	}
+	n := len(command)
+	for _, succeeded := range command {
+		if succeeded {
+			n--
+		}
+	}
+	if n == 0 {
+		r.podSucceeded(pod)
 	}
 }
 
@@ -487,23 +643,8 @@ func (r *Task) podFailed(pod *core.Pod, client k8s.Client) {
 	}
 }
 
-// Cancel the task.
-func (r *Task) Cancel(client k8s.Client) (err error) {
-	err = r.Delete(client)
-	if err != nil {
-		return
-	}
-	r.State = Canceled
-	r.SetBucket(nil)
-	Log.Info(
-		"Task canceled.",
-		"id",
-		r.ID)
-	return
-}
-
 // findAddon by name.
-func (r *Task) findAddons(client k8s.Client) (addon []crd.Addon, err error) {
+func (r *Task) findAddons(client k8s.Client) (addons []crd.Addon, err error) {
 	def := &crd.Task{}
 	err = client.Get(
 		context.TODO(),
@@ -514,16 +655,16 @@ func (r *Task) findAddons(client k8s.Client) (addon []crd.Addon, err error) {
 		def)
 	if err != nil {
 		if k8serr.IsNotFound(err) {
-			err = &TaskNotFound{r.Kind}
+			err = &NotFound{r.Kind}
 		} else {
 			err = liberr.Wrap(err)
 		}
 		return
 	}
-	addons := crd.AddonList{}
+	addonList := crd.AddonList{}
 	err = client.List(
 		context.TODO(),
-		&addons,
+		&addonList,
 		k8s.MatchingLabels{
 			TaskLabel: r.Kind,
 		})
@@ -531,7 +672,13 @@ func (r *Task) findAddons(client k8s.Client) (addon []crd.Addon, err error) {
 		err = liberr.Wrap(err)
 		return
 	}
-	addon = addons.Items
+	for _, addon := range addonList.Items {
+		if addon.Spec.Kind == AddonCommand {
+			addons = addonList.Items
+			return
+		}
+	}
+	err = &NoAddonsMatched{Task: r.Name}
 	return
 }
 
@@ -578,8 +725,6 @@ func (r *Task) pod(addons []crd.Addon, owner *crd.Tackle, secret *core.Secret) (
 
 // specification builds a Pod specification.
 func (r *Task) specification(addons []crd.Addon, secret *core.Secret) (specification core.PodSpec) {
-	sharedProcess := true
-	specification.ShareProcessNamespace = &sharedProcess
 	shared := core.Volume{
 		Name: Shared,
 		VolumeSource: core.VolumeSource{
@@ -628,7 +773,8 @@ func (r *Task) containers(
 			},
 		},
 	}
-	for _, addon := range addons {
+	for i := range addons {
+		addon := addons[i]
 		container := addon.Spec.Container
 		container.SecurityContext = &core.SecurityContext{
 			RunAsUser: &userid,
@@ -646,8 +792,8 @@ func (r *Task) containers(
 		container.Env = append(
 			container.Env,
 			core.EnvVar{
-				Name:  "KIND",
-				Value: r.Kind,
+				Name:  AddonKindEnv,
+				Value: addon.Spec.Kind,
 			},
 			core.EnvVar{
 				Name:  settings.EnvHubBaseURL,
@@ -661,11 +807,12 @@ func (r *Task) containers(
 				Name:      settings.EnvHubToken,
 				ValueFrom: token,
 			})
-		switch addon.Kind {
+		switch addon.Spec.Kind {
 		case AddonInit:
 			init = append(init, container)
-		case AddonDaemon,
-			AddonCommand:
+		case AddonDaemon:
+			plain = append(plain, container)
+		case AddonCommand:
 			plain = append(plain, container)
 		}
 	}
@@ -708,82 +855,3 @@ func (r *Task) labels() map[string]string {
 		"role": "task",
 	}
 }
-
-// podLog - get and store pod log as a File.
-func (r *Task) podLog(db *gorm.DB) (file *model.File, err error) {
-	options := &core.PodLogOptions{}
-	clientSet, err := k8s2.NewClientSet()
-	if err != nil {
-		return
-	}
-	podClient := clientSet.CoreV1().Pods(Settings.Hub.Namespace)
-	req := podClient.GetLogs(r.Pod, options)
-	reader, err := req.Stream(context.TODO())
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	defer func() {
-		_ = reader.Close()
-	}()
-	file = &model.File{Name: "pod.log"}
-	err = db.Create(&file).Error
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	writer, err := os.Create(file.Path)
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	defer func() {
-		_ = writer.Close()
-	}()
-	_, err = io.Copy(writer, reader)
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	return
-}
-
-/*
-func xxx() {
-	variant := func(
-		client k8s.Client,
-		task *model.Task,
-		pod *core.PodSpec) (err error) {
-		type Data struct {
-			Providers []string `json:"providers"`
-		}
-		d := &Data{}
-		err = json.Unmarshal(task.Data, d)
-		if err != nil {
-			err = liberr.Wrap(err)
-			return
-		}
-		for _, name := range d.Providers {
-			p := &crd.Provider{}
-			err = client.Get(
-				context.TODO(),
-				k8s.ObjectKey{
-					Namespace: Settings.Hub.Namespace,
-					Name:      name,
-				},
-				p)
-			if err != nil {
-				err = liberr.Wrap(err)
-				return
-			}
-			pod.Containers = append(
-				pod.Containers,
-				p.Spec.Container)
-		}
-
-		return
-	}
-	tasking.Variants["analyzer"] = variant
-}
-
-*/

@@ -177,6 +177,12 @@ type TTL struct {
 	Failed    int `json:"failed,omitempty"`
 }
 
+// Ref represents a FK.
+type Ref struct {
+	ID   uint   `json:"id" binding:"required"`
+	Name string `json:"name,omitempty"`
+}
+
 // TaskError used in Task.Errors.
 type TaskError struct {
 	Severity    string `json:"severity"`

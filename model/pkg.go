@@ -47,6 +47,7 @@ type Ticket = model.Ticket
 type Tracker = model.Tracker
 
 type TTL = model.TTL
+type Ref = model.Ref
 
 // Join tables
 type ApplicationTag = model.ApplicationTag

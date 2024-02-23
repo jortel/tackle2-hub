@@ -569,8 +569,8 @@ func (r *Task) With(m *model.Task) {
 		report := &TaskReport{}
 		report.With(m.Report)
 		r.Activity = report.Activity
-		r.Errors = append(report.Errors, r.Errors...)
-		r.Attached = append(report.Attached, r.Attached...)
+		r.Errors = append(r.Errors, report.Errors...)
+		r.Attached = append(r.Attached, report.Attached...)
 		switch r.State {
 		case tasking.Succeeded:
 			switch report.Status {
