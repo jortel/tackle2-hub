@@ -518,7 +518,14 @@ func (r *Task) Delete(client k8s.Client) (err error) {
 
 // podPending handles pod pending.
 func (r *Task) podPending(pod *core.Pod) {
-	for _, status := range pod.Status.InitContainerStatuses {
+	var status []core.ContainerStatus
+	status = append(
+		status,
+		pod.Status.InitContainerStatuses...)
+	status = append(
+		status,
+		pod.Status.ContainerStatuses...)
+	for _, status := range status {
 		if status.Started == nil {
 			continue
 		}
@@ -546,6 +553,7 @@ func (r *Task) Cancel(client k8s.Client) (err error) {
 
 // podRunning handles pod running.
 func (r *Task) podRunning(pod *core.Pod, client k8s.Client) {
+	r.State = Running
 	command := map[string]bool{}
 	for _, container := range pod.Spec.Containers {
 		for _, env := range container.Env {
