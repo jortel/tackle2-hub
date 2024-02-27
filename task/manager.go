@@ -314,7 +314,7 @@ func (m *Manager) snapshotPod(task *Task, pod *core.Pod) (err error) {
 
 // podDescription builds pod resource description.
 func (m *Manager) podDescription(pod *core.Pod) (file *model.File, err error) {
-	file = &model.File{Name: "pod"}
+	file = &model.File{Name: "pod.yaml"}
 	err = m.db().Create(file).Error
 	if err != nil {
 		err = liberr.Wrap(err)
