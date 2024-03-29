@@ -42,6 +42,29 @@ func (h *Task) Application() (r *api.Application, err error) {
 	return
 }
 
+// Addon returns the addon associated with the task.
+// inject: perform injection.
+func (h *Task) Addon(inject bool) (r *api.Addon, err error) {
+	name := h.task.Addon
+	if name == "" {
+		err = &NotFound{}
+		return
+	}
+	r, err = h.richClient.Addon.Get(name)
+	if err != nil {
+		return
+	}
+	if !inject {
+		return
+	}
+	for i := range r.Extensions {
+		extension := &r.Extensions[i]
+		injector := EnvInjector{}
+		injector.Inject(extension)
+	}
+	return
+}
+
 // Data returns the addon data.
 func (h *Task) Data() (d map[string]interface{}) {
 	d = h.task.Data.(map[string]interface{})
@@ -53,11 +76,6 @@ func (h *Task) DataWith(object interface{}) (err error) {
 	b, _ := json.Marshal(h.task.Data)
 	err = json.Unmarshal(b, object)
 	return
-}
-
-// Variant returns the task variant.
-func (h *Task) Variant() string {
-	return h.task.Variant
 }
 
 // Started report addon started.

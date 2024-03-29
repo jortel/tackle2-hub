@@ -354,23 +354,27 @@ func (h TaskGroupHandler) BucketDelete(ctx *gin.Context) {
 
 // TaskGroup REST resource.
 type TaskGroup struct {
-	Resource `yaml:",inline"`
-	Name     string      `json:"name"`
-	Addon    string      `json:"addon"`
-	Data     interface{} `json:"data" swaggertype:"object" binding:"required"`
-	Bucket   *Ref        `json:"bucket,omitempty"`
-	State    string      `json:"state"`
-	Tasks    []Task      `json:"tasks"`
+	Resource   `yaml:",inline"`
+	Name       string      `json:"name"`
+	Kind       string      `json:"kind,omitempty" yaml:",omitempty"`
+	Addon      string      `json:"addon,omitempty" yaml:",omitempty"`
+	Extensions []string    `json:"extensions,omitempty" yaml:",omitempty"`
+	Data       interface{} `json:"data" swaggertype:"object" binding:"required"`
+	Bucket     *Ref        `json:"bucket,omitempty"`
+	State      string      `json:"state"`
+	Tasks      []Task      `json:"tasks"`
 }
 
 // With updates the resource with the model.
 func (r *TaskGroup) With(m *model.TaskGroup) {
 	r.Resource.With(&m.Model)
 	r.Name = m.Name
+	r.Kind = m.Kind
 	r.Addon = m.Addon
 	r.State = m.State
 	r.Bucket = r.refPtr(m.BucketID, m.Bucket)
 	r.Tasks = []Task{}
+	_ = json.Unmarshal(m.Extensions, &r.Extensions)
 	_ = json.Unmarshal(m.Data, &r.Data)
 	switch m.State {
 	case "", tasking.Created:
@@ -390,12 +394,16 @@ func (r *TaskGroup) With(m *model.TaskGroup) {
 func (r *TaskGroup) Model() (m *model.TaskGroup) {
 	m = &model.TaskGroup{
 		Name:  r.Name,
+		Kind:  r.Kind,
 		Addon: r.Addon,
 		State: r.State,
 	}
 	m.ID = r.ID
 	m.Data, _ = json.Marshal(StrMap(r.Data))
 	m.List, _ = json.Marshal(r.Tasks)
+	if r.Extensions != nil {
+		m.Extensions, _ = json.Marshal(r.Extensions)
+	}
 	if r.Bucket != nil {
 		m.BucketID = &r.Bucket.ID
 	}
