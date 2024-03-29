@@ -43,6 +43,7 @@ func (h *Task) Application() (r *api.Application, err error) {
 }
 
 // Addon returns the addon associated with the task.
+// The extensions are filtered to include those specified in the task.
 // inject: perform injection.
 func (h *Task) Addon(inject bool) (r *api.Addon, err error) {
 	name := h.task.Addon
@@ -54,13 +55,28 @@ func (h *Task) Addon(inject bool) (r *api.Addon, err error) {
 	if err != nil {
 		return
 	}
-	if !inject {
-		return
+	// filter
+	included := map[string]int{}
+	for _, name := range h.task.Extensions {
+		included[name] = 0
 	}
+	var extensions []api.Extension
 	for i := range r.Extensions {
-		extension := &r.Extensions[i]
-		injector := EnvInjector{}
-		injector.Inject(extension)
+		extension := r.Extensions[i]
+		if _, found := included[extension.Name]; found {
+			extensions = append(
+				extensions,
+				extension)
+		}
+	}
+	r.Extensions = extensions
+	// inject
+	if inject {
+		for i := range r.Extensions {
+			extension := &r.Extensions[i]
+			injector := EnvInjector{}
+			injector.Inject(extension)
+		}
 	}
 	return
 }
