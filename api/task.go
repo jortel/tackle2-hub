@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konveyor/tackle2-hub/model"
+	"github.com/konveyor/tackle2-hub/tar"
 	tasking "github.com/konveyor/tackle2-hub/task"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -23,6 +25,7 @@ const (
 	TasksRoot             = "/tasks"
 	TaskRoot              = TasksRoot + "/:" + ID
 	TaskReportRoot        = TaskRoot + "/report"
+	TaskAttachedRoot      = TaskRoot + "/attached"
 	TaskBucketRoot        = TaskRoot + "/bucket"
 	TaskBucketContentRoot = TaskBucketRoot + "/*" + Wildcard
 	TaskSubmitRoot        = TaskRoot + "/submit"
@@ -65,6 +68,8 @@ func (h TaskHandler) AddRoutes(e *gin.Engine) {
 	routeGroup.POST(TaskReportRoot, h.CreateReport)
 	routeGroup.PUT(TaskReportRoot, h.UpdateReport)
 	routeGroup.DELETE(TaskReportRoot, h.DeleteReport)
+	// Attached
+	routeGroup.GET(TaskAttachedRoot, h.GetAttached)
 }
 
 // Get godoc
@@ -478,6 +483,46 @@ func (h TaskHandler) DeleteReport(ctx *gin.Context) {
 	}
 
 	h.Status(ctx, http.StatusNoContent)
+}
+
+// GetAttached godoc
+// @summary Get attached files.
+// @description Get attached files.
+// @description Returns a tarball with attached files.
+// @tags tasks
+// @produce octet-stream
+// @success 200
+// @router /tasks/{id}/attached [get]
+// @param id path int true "Task ID"
+func (h TaskHandler) GetAttached(ctx *gin.Context) {
+	m := &model.Task{}
+	id := h.pk(ctx)
+	db := h.DB(ctx).Preload(clause.Associations)
+	err := db.First(m, id).Error
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	tarWriter := tar.NewWriter(ctx.Writer)
+	defer func() {
+		tarWriter.Close()
+	}()
+	r := Task{}
+	r.With(m)
+	for _, ref := range r.Attached {
+		file := &model.File{}
+		err = h.DB(ctx).First(file, ref.ID).Error
+		if err != nil {
+			_ = ctx.Error(err)
+			return
+		}
+		dst := fmt.Sprintf("%.3d-%s", file.ID, file.Name)
+		err = tarWriter.AddFile(file.Path, dst)
+		if err != nil {
+			_ = ctx.Error(err)
+			return
+		}
+	}
 }
 
 // Fields omitted by:
