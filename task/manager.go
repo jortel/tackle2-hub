@@ -961,13 +961,7 @@ func (r *Task) propagateEnv(addon, extension *core.Container) {
 		addon.Env = append(
 			addon.Env,
 			core.EnvVar{
-				Name: strings.Join(
-					[]string{
-						"EXTENSION",
-						strings.ToUpper(extension.Name),
-						env.Name,
-					},
-					"_"),
+				Name:  ExtEnv(extension.Name, env.Name),
 				Value: env.Value,
 			})
 	}
@@ -1030,4 +1024,17 @@ type Event struct {
 	Age      string
 	Reporter string
 	Message  string
+}
+
+// ExtEnv returns an environment variable named namespaced to an extension.
+// Format: _EXT_<extension_<var>.
+func ExtEnv(extension string, envar string) (s string) {
+	s = strings.Join(
+		[]string{
+			"_EXT",
+			strings.ToUpper(extension),
+			envar,
+		},
+		"_")
+	return
 }

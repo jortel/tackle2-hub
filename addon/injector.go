@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/konveyor/tackle2-hub/api"
+	"github.com/konveyor/tackle2-hub/task"
 )
 
 var (
@@ -29,19 +30,11 @@ func (r *EnvInjector) Inject(extension *api.Extension) {
 	extension.Metadata = mp
 }
 
-// buildEnv builds the `env`.
-// Maps EXTENSION_<extension>_<var> found in the addon environment to its
-// original unqualified name in the extension environment.
+// buildEnv builds the extension `env`.
 func (r *EnvInjector) buildEnv(extension *api.Extension) {
 	r.env = make(map[string]string)
 	for _, env := range extension.Container.Env {
-		key := strings.Join(
-			[]string{
-				"EXTENSION",
-				strings.ToUpper(extension.Name),
-				env.Name,
-			},
-			"_")
+		key := task.ExtEnv(extension.Name, env.Name)
 		r.env[env.Name] = os.Getenv(key)
 	}
 }
