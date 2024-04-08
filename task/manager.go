@@ -252,7 +252,7 @@ func (m *Manager) refreshKinds() (err error) {
 }
 
 // postpone Postpones a task as needed based on rules.
-func (m *Manager) postpone(ready *model.Task, list []model.Task) (p bool, caused []*model.Task) {
+func (m *Manager) postpone(ready *model.Task, list []model.Task) (matched bool, caused []*model.Task) {
 	ruleSet := []Rule{
 		&RuleIsolated{},
 		&RuleUnique{},
@@ -272,7 +272,7 @@ func (m *Manager) postpone(ready *model.Task, list []model.Task) (p bool, caused
 				if rule.Match(ready, other) {
 					m.escalate(ready, other)
 					caused = append(caused, other)
-					p = true
+					matched = true
 					return
 				}
 			}
