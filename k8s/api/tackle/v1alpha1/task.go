@@ -24,6 +24,10 @@ import (
 type TaskSpec struct {
 	// Addon selector.
 	Addon []Selector `json:"addon,omitempty"`
+	// Priority
+	Priority int `json:"priority,omitempty"`
+	// Dependencies
+	Dependencies []string `json:"dependencies,omitempty"`
 }
 
 // TaskStatus defines the observed state of Task
@@ -37,13 +41,23 @@ type TaskStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="READY",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
-// +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
 type Task struct {
 	meta.TypeMeta   `json:",inline"`
 	meta.ObjectMeta `json:"metadata,omitempty"`
 	Spec            TaskSpec   `json:"spec,omitempty"`
 	Status          TaskStatus `json:"status,omitempty"`
+}
+
+// HasDep return true if the task has the dependency.
+func (r *Task) HasDep(name string) (found bool) {
+	for i := range r.Spec.Dependencies {
+		n := r.Spec.Dependencies[i]
+		if n == name {
+			found = true
+			break
+		}
+	}
+	return
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

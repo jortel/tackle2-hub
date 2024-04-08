@@ -28,6 +28,7 @@ const (
 	EnvAppName            = "APP_NAME"
 	EnvDisconnected       = "DISCONNECTED"
 	EnvAnalysisReportPath = "ANALYSIS_REPORT_PATH"
+	EnvTaskCapacity       = "TASK_CAPACITY"
 )
 
 type Hub struct {
@@ -63,9 +64,10 @@ type Hub struct {
 	}
 	// Task
 	Task struct {
-		SA      string
-		Retries int
-		Reaper  struct { // minutes.
+		SA       string
+		Retries  int
+		Capacity int
+		Reaper   struct { // minutes.
 			Created   int
 			Succeeded int
 			Failed    int
@@ -159,6 +161,13 @@ func (r *Hub) Load() (err error) {
 		r.Task.Retries = n
 	} else {
 		r.Task.Retries = 1
+	}
+	s, found = os.LookupEnv(EnvTaskCapacity)
+	if found {
+		n, _ := strconv.Atoi(s)
+		r.Task.Capacity = n
+	} else {
+		r.Task.Capacity = 10
 	}
 	s, found = os.LookupEnv(EnvFrequencyTask)
 	if found {

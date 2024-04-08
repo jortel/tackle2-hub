@@ -67,10 +67,13 @@ type Manager struct {
 	Client k8s.Client
 	// Addon token scopes.
 	Scopes []string
+	// Kinds of tasks.
+	kinds map[string]crd.Task
 }
 
 // Run the manager.
 func (m *Manager) Run(ctx context.Context) {
+	m.kinds = make(map[string]crd.Task)
 	auth.Validators = append(
 		auth.Validators,
 		&Validator{
@@ -115,7 +118,19 @@ func (m *Manager) startReady() {
 	if result.Error != nil {
 		return
 	}
+	capacity := 0
+	if len(list) > 0 {
+		capacity = m.determineCapacity()
+	}
+	err := m.refreshKinds()
+	if err != nil {
+		Log.Error(result.Error, "")
+		return
+	}
 	for i := range list {
+		if i >= capacity {
+			break
+		}
 		task := &list[i]
 		if Settings.Disconnected {
 			mark := time.Now()
@@ -134,11 +149,16 @@ func (m *Manager) startReady() {
 		case Ready,
 			Postponed:
 			ready := task
-			if m.postpone(ready, list) {
+			postponed, caused := m.postpone(ready, list)
+			if postponed {
 				ready.State = Postponed
 				Log.Info("Task postponed.", "id", ready.ID)
 				sErr := m.DB.Save(ready).Error
 				Log.Error(sErr, "")
+				for i := range caused {
+					sErr := m.DB.Save(caused[i]).Error
+					Log.Error(sErr, "")
+				}
 				continue
 			}
 			if ready.Retries == 0 {
@@ -209,12 +229,34 @@ func (m *Manager) updateRunning() {
 	}
 }
 
+// refreshKinds refresh kind map.
+func (m *Manager) refreshKinds() (err error) {
+	m.kinds = make(map[string]crd.Task)
+	list := crd.TaskList{}
+	err = m.Client.List(
+		context.TODO(),
+		&list,
+		&k8s.ListOptions{Namespace: Settings.Namespace})
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	for _, task := range list.Items {
+		m.kinds[task.Name] = task
+	}
+	return
+}
+
 // postpone Postpones a task as needed based on rules.
-func (m *Manager) postpone(ready *model.Task, list []model.Task) (postponed bool) {
+func (m *Manager) postpone(ready *model.Task, list []model.Task) (p bool, caused []*model.Task) {
 	ruleSet := []Rule{
 		&RuleIsolated{},
 		&RuleUnique{},
+		&RuleDeps{
+			kinds: m.kinds,
+		},
 	}
+
 	for i := range list {
 		other := &list[i]
 		if ready.ID == other.ID {
@@ -225,7 +267,9 @@ func (m *Manager) postpone(ready *model.Task, list []model.Task) (postponed bool
 			Pending:
 			for _, rule := range ruleSet {
 				if rule.Match(ready, other) {
-					postponed = true
+					m.escalate(ready, other)
+					caused = append(caused, other)
+					p = true
 					return
 				}
 			}
@@ -233,6 +277,20 @@ func (m *Manager) postpone(ready *model.Task, list []model.Task) (postponed bool
 	}
 
 	return
+}
+
+// escalate priority.
+func (m *Manager) escalate(ready, caused *model.Task) {
+	if ready.Priority <= caused.Priority {
+		return
+	}
+	caused.Priority = ready.Priority
+	Log.Info(
+		"Priority escalated.",
+		"id",
+		caused.ID,
+		"match",
+		ready.ID)
 }
 
 // The task has been canceled.
@@ -392,6 +450,40 @@ func (m *Manager) containerLog(pod *core.Pod, container string) (file *model.Fil
 	if err != nil {
 		err = liberr.Wrap(err)
 		return
+	}
+	return
+}
+
+// determineCapacity returns the number of tasks that may be started.
+func (m *Manager) determineCapacity() (n int) {
+	n = Settings.Hub.Task.Capacity
+	list := []model.Task{}
+	db := m.DB.Order("priority DESC, id")
+	err := db.Find(
+		&list,
+		"state IN ?",
+		[]string{
+			Pending,
+			Running,
+		}).Error
+	if err != nil {
+		Log.Error(err, "")
+		n = 0
+		return
+	}
+	for i := range list {
+		task := &list[i]
+		switch task.State {
+		case Pending: // cluster saturated.
+			n = 0
+			return
+		case Running:
+			if n > 0 {
+				n--
+			} else {
+				return
+			}
+		}
 	}
 	return
 }

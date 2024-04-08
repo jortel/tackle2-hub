@@ -3,6 +3,7 @@ package task
 import (
 	"strings"
 
+	crd "github.com/konveyor/tackle2-hub/k8s/api/tackle/v1alpha1"
 	"github.com/konveyor/tackle2-hub/model"
 )
 
@@ -13,7 +14,6 @@ type Rule interface {
 
 // RuleUnique running tasks must be unique by:
 //   - application
-//   - variant
 //   - addon.
 type RuleUnique struct {
 }
@@ -40,13 +40,40 @@ func (r *RuleUnique) Match(candidate, other *model.Task) (matched bool) {
 	return
 }
 
+// RuleDeps - Task kind dependencies.
+type RuleDeps struct {
+	kinds map[string]crd.Task
+}
+
+// Match determines the match.
+func (r *RuleDeps) Match(candidate, other *model.Task) (matched bool) {
+	if candidate.Kind == "" || other.Kind == "" {
+		return
+	}
+	if *candidate.ApplicationID != *other.ApplicationID {
+		return
+	}
+	def, found := r.kinds[candidate.Kind]
+	if !found {
+		return
+	}
+	matched = def.HasDep(other.Kind)
+	Log.Info(
+		"Rule:dep matched.",
+		"candidate",
+		candidate.ID,
+		"by",
+		other.ID)
+	return
+}
+
 // RuleIsolated policy.
 type RuleIsolated struct {
 }
 
 // Match determines the match.
 func (r *RuleIsolated) Match(candidate, other *model.Task) (matched bool) {
-	matched = r.hasPolicy(candidate, Isolated) || r.hasPolicy(other, Isolated)
+	matched = hasPolicy(candidate, Isolated) || hasPolicy(other, Isolated)
 	if matched {
 		Log.Info(
 			"Rule:Isolated matched.",
@@ -59,8 +86,8 @@ func (r *RuleIsolated) Match(candidate, other *model.Task) (matched bool) {
 	return
 }
 
-// Returns true if the task policy includes: isolated
-func (r *RuleIsolated) hasPolicy(task *model.Task, name string) (matched bool) {
+// Returns true if the task policy includes the specified rule.
+func hasPolicy(task *model.Task, name string) (matched bool) {
 	for _, p := range strings.Split(task.Policy, ";") {
 		p = strings.TrimSpace(p)
 		p = strings.ToLower(p)
