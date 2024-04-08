@@ -9,7 +9,7 @@ import (
 
 // Rule defines postpone rules.
 type Rule interface {
-	Match(candidate, other *model.Task) bool
+	Match(ready, other *model.Task) bool
 }
 
 // RuleUnique running tasks must be unique by:
@@ -19,21 +19,21 @@ type RuleUnique struct {
 }
 
 // Match determines the match.
-func (r *RuleUnique) Match(candidate, other *model.Task) (matched bool) {
-	if candidate.ApplicationID == nil || other.ApplicationID == nil {
+func (r *RuleUnique) Match(ready, other *model.Task) (matched bool) {
+	if ready.ApplicationID == nil || other.ApplicationID == nil {
 		return
 	}
-	if *candidate.ApplicationID != *other.ApplicationID {
+	if *ready.ApplicationID != *other.ApplicationID {
 		return
 	}
-	if candidate.Addon != other.Addon {
+	if ready.Addon != other.Addon {
 		return
 	}
 	matched = true
 	Log.Info(
 		"Rule:Unique matched.",
-		"candidate",
-		candidate.ID,
+		"ready",
+		ready.ID,
 		"by",
 		other.ID)
 
@@ -46,22 +46,22 @@ type RuleDeps struct {
 }
 
 // Match determines the match.
-func (r *RuleDeps) Match(candidate, other *model.Task) (matched bool) {
-	if candidate.Kind == "" || other.Kind == "" {
+func (r *RuleDeps) Match(ready, other *model.Task) (matched bool) {
+	if ready.Kind == "" || other.Kind == "" {
 		return
 	}
-	if *candidate.ApplicationID != *other.ApplicationID {
+	if *ready.ApplicationID != *other.ApplicationID {
 		return
 	}
-	def, found := r.kinds[candidate.Kind]
+	def, found := r.kinds[ready.Kind]
 	if !found {
 		return
 	}
 	matched = def.HasDep(other.Kind)
 	Log.Info(
 		"Rule:dep matched.",
-		"candidate",
-		candidate.ID,
+		"ready",
+		ready.ID,
 		"by",
 		other.ID)
 	return
@@ -72,13 +72,13 @@ type RuleIsolated struct {
 }
 
 // Match determines the match.
-func (r *RuleIsolated) Match(candidate, other *model.Task) (matched bool) {
-	matched = hasPolicy(candidate, Isolated) || hasPolicy(other, Isolated)
+func (r *RuleIsolated) Match(ready, other *model.Task) (matched bool) {
+	matched = hasPolicy(ready, Isolated) || hasPolicy(other, Isolated)
 	if matched {
 		Log.Info(
 			"Rule:Isolated matched.",
-			"candidate",
-			candidate.ID,
+			"ready",
+			ready.ID,
 			"by",
 			other.ID)
 	}
