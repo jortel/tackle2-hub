@@ -137,8 +137,10 @@ func (m *Manager) startReady() {
 		}
 		if task.Canceled {
 			m.canceled(task)
-			continue
 		}
+	}
+	for i := range list {
+		task := &list[i]
 		switch task.State {
 		case Ready,
 			Postponed:
@@ -159,10 +161,6 @@ func (m *Manager) startReady() {
 					}
 				}
 			}
-		default:
-			// Ignored.
-			// Other states included to support
-			// postpone rules.
 		}
 	}
 	capacity := 0
