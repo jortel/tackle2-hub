@@ -273,7 +273,6 @@ func (m *Manager) postpone(ready *model.Task, list []model.Task) (matched bool, 
 					m.escalate(ready, other)
 					caused = append(caused, other)
 					matched = true
-					return
 				}
 			}
 		}
