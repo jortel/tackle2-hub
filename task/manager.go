@@ -256,7 +256,6 @@ func (m *Manager) postpone(ready *model.Task, list []model.Task) (p bool, caused
 			kinds: m.kinds,
 		},
 	}
-
 	for i := range list {
 		other := &list[i]
 		if ready.ID == other.ID {
@@ -280,6 +279,7 @@ func (m *Manager) postpone(ready *model.Task, list []model.Task) (p bool, caused
 }
 
 // escalate priority.
+// prevents priority inversions.
 func (m *Manager) escalate(ready, caused *model.Task) {
 	if ready.Priority <= caused.Priority {
 		return
