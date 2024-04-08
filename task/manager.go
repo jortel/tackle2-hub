@@ -156,8 +156,12 @@ func (m *Manager) startReady() {
 				sErr := m.DB.Save(ready).Error
 				Log.Error(sErr, "")
 				for i := range caused {
-					sErr := m.DB.Save(caused[i]).Error
-					Log.Error(sErr, "")
+					switch caused[i].State {
+					case Ready,
+						Postponed:
+						sErr := m.DB.Save(caused[i]).Error
+						Log.Error(sErr, "")
+					}
 				}
 				continue
 			}
