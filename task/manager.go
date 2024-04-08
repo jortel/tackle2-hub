@@ -293,6 +293,8 @@ func (m *Manager) escalate(ready, caused *model.Task) {
 		"Priority escalated.",
 		"id",
 		caused.ID,
+		"priority",
+		caused.Priority,
 		"match",
 		ready.ID)
 }
@@ -793,8 +795,10 @@ func (r *Task) selectAddon(db *gorm.DB, client k8s.Client) (err error) {
 		if err != nil {
 			return
 		}
-		selected = matched[0]
-		break
+		if len(matched) > 0 {
+			selected = matched[0]
+			break
+		}
 	}
 	if selected == "" {
 		err = &AddonNotSelected{}
