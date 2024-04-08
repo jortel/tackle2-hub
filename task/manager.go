@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -101,7 +102,7 @@ func (m *Manager) pause() {
 	time.Sleep(d)
 }
 
-// startReady starts pending tasks.
+// startReady starts ready tasks.
 func (m *Manager) startReady() {
 	list := []model.Task{}
 	db := m.DB.Order("priority DESC, id")
@@ -118,19 +119,12 @@ func (m *Manager) startReady() {
 	if result.Error != nil {
 		return
 	}
-	capacity := 0
-	if len(list) > 0 {
-		capacity = m.determineCapacity()
-	}
 	err := m.refreshKinds()
 	if err != nil {
 		Log.Error(result.Error, "")
 		return
 	}
 	for i := range list {
-		if i >= capacity {
-			break
-		}
 		task := &list[i]
 		if Settings.Disconnected {
 			mark := time.Now()
@@ -148,6 +142,7 @@ func (m *Manager) startReady() {
 		switch task.State {
 		case Ready,
 			Postponed:
+			task.State = Ready
 			ready := task
 			postponed, caused := m.postpone(ready, list)
 			if postponed {
@@ -163,26 +158,49 @@ func (m *Manager) startReady() {
 						Log.Error(sErr, "")
 					}
 				}
-				continue
 			}
-			if ready.Retries == 0 {
-				metrics.TasksInitiated.Inc()
-			}
-			rt := Task{ready}
-			err := rt.Run(m.DB, m.Client)
-			if err != nil {
-				ready.State = Failed
-				Log.Error(err, "")
-			} else {
-				Log.Info("Task started.", "id", ready.ID)
-			}
-			err = m.DB.Save(ready).Error
-			Log.Error(err, "")
 		default:
 			// Ignored.
 			// Other states included to support
 			// postpone rules.
 		}
+	}
+	capacity := 0
+	if len(list) > 0 {
+		capacity = m.determineCapacity()
+	}
+	sort.Slice(
+		list,
+		func(i, j int) bool {
+			it := &list[i]
+			jt := &list[j]
+			return it.Priority > jt.Priority ||
+				it.ID < jt.ID
+		})
+	started := 0
+	for i := range list {
+		task := &list[i]
+		if task.State != Ready {
+			continue
+		}
+		if started >= capacity {
+			break
+		}
+		ready := task
+		if ready.Retries == 0 {
+			metrics.TasksInitiated.Inc()
+		}
+		rt := Task{ready}
+		err := rt.Run(m.DB, m.Client)
+		if err != nil {
+			ready.State = Failed
+			Log.Error(err, "")
+		} else {
+			Log.Info("Task started.", "id", ready.ID)
+			started++
+		}
+		err = m.DB.Save(ready).Error
+		Log.Error(err, "")
 	}
 }
 
