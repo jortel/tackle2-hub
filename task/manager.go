@@ -163,10 +163,6 @@ func (m *Manager) startReady() {
 			}
 		}
 	}
-	batch := 0
-	if len(list) > 0 {
-		batch = m.nextBatch()
-	}
 	sort.Slice(
 		list,
 		func(i, j int) bool {
@@ -175,13 +171,15 @@ func (m *Manager) startReady() {
 			return it.Priority > jt.Priority ||
 				it.ID < jt.ID
 		})
-	started := 0
+	weight := 0
+	weightLimit := Settings.Hub.Task.WeightLimit
 	for i := range list {
 		task := &list[i]
 		if task.State != Ready {
 			continue
 		}
-		if started >= batch {
+		if weight >= weightLimit {
+			Log.V(1).Info("Weight Limit - reached.")
 			break
 		}
 		ready := task
@@ -189,13 +187,13 @@ func (m *Manager) startReady() {
 			metrics.TasksInitiated.Inc()
 		}
 		rt := Task{ready}
-		err := rt.Run(m.DB, m.Client)
+		w, err := rt.Run(m.DB, m.Client)
 		if err != nil {
 			ready.State = Failed
 			Log.Error(err, "")
 		} else {
 			Log.Info("Task started.", "id", ready.ID)
-			started++
+			weight += w
 		}
 		err = m.DB.Save(ready).Error
 		Log.Error(err, "")
@@ -475,40 +473,6 @@ func (m *Manager) containerLog(pod *core.Pod, container string) (file *model.Fil
 	return
 }
 
-// nextBatch returns the number of tasks that may be started.
-func (m *Manager) nextBatch() (n int) {
-	n = Settings.Hub.Task.Capacity
-	list := []model.Task{}
-	db := m.DB.Order("priority DESC, id")
-	err := db.Find(
-		&list,
-		"state IN ?",
-		[]string{
-			Pending,
-			Running,
-		}).Error
-	if err != nil {
-		Log.Error(err, "")
-		n = 0
-		return
-	}
-	for i := range list {
-		task := &list[i]
-		switch task.State {
-		case Pending: // cluster saturated.
-			n = 0
-			return
-		case Running:
-			if n > 0 {
-				n--
-			} else {
-				return
-			}
-		}
-	}
-	return
-}
-
 // Task is an runtime task.
 type Task struct {
 	// model.
@@ -516,7 +480,7 @@ type Task struct {
 }
 
 // Run the specified task.
-func (r *Task) Run(db *gorm.DB, client k8s.Client) (err error) {
+func (r *Task) Run(db *gorm.DB, client k8s.Client) (weight int, err error) {
 	mark := time.Now()
 	defer func() {
 		if err != nil {
@@ -571,6 +535,7 @@ func (r *Task) Run(db *gorm.DB, client k8s.Client) (err error) {
 		err = liberr.Wrap(err)
 		return
 	}
+	weight = r.weight(&pod)
 	defer func() {
 		if err != nil {
 			_ = client.Delete(context.TODO(), &pod)
@@ -609,7 +574,7 @@ func (r *Task) Reflect(db *gorm.DB, client k8s.Client) (pod *core.Pod, err error
 		pod)
 	if err != nil {
 		if k8serr.IsNotFound(err) {
-			err = r.Run(db, client)
+			_, err = r.Run(db, client)
 		} else {
 			err = liberr.Wrap(err)
 		}
@@ -1130,6 +1095,29 @@ func (r *Task) attach(file *model.File) {
 			Name: file.Name,
 		})
 	r.Attached, _ = json.Marshal(attached)
+}
+
+// weight estimates the pod weight.
+func (r *Task) weight(pod *core.Pod) (weight int) {
+	weight = 1
+	for _, cont := range pod.Spec.Containers {
+		request := cont.Resources.Requests
+		w := int64(1)
+		memory := request.Memory()
+		if memory != nil {
+			n := memory.Value()
+			w += n / int64(100000000) // 100MB
+		}
+		cpu := request.Cpu()
+		if cpu != nil {
+			n := cpu.Value()
+			w = n * w
+		}
+		if int(w) > weight {
+			weight = int(w)
+		}
+	}
+	return
 }
 
 // Event represents a pod event.
