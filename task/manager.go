@@ -163,9 +163,9 @@ func (m *Manager) startReady() {
 			}
 		}
 	}
-	capacity := 0
+	batch := 0
 	if len(list) > 0 {
-		capacity = m.determineCapacity()
+		batch = m.nextBatch()
 	}
 	sort.Slice(
 		list,
@@ -181,7 +181,7 @@ func (m *Manager) startReady() {
 		if task.State != Ready {
 			continue
 		}
-		if started >= capacity {
+		if started >= batch {
 			break
 		}
 		ready := task
@@ -475,8 +475,8 @@ func (m *Manager) containerLog(pod *core.Pod, container string) (file *model.Fil
 	return
 }
 
-// determineCapacity returns the number of tasks that may be started.
-func (m *Manager) determineCapacity() (n int) {
+// nextBatch returns the number of tasks that may be started.
+func (m *Manager) nextBatch() (n int) {
 	n = Settings.Hub.Task.Capacity
 	list := []model.Task{}
 	db := m.DB.Order("priority DESC, id")
