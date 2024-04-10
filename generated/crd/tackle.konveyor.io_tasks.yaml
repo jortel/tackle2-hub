@@ -53,8 +53,8 @@ spec:
                   type: string
                 type: array
               priority:
-                description: Priority
-                type: integer
+                description: Priority class.
+                type: string
             type: object
           status:
             description: TaskStatus defines the observed state of Task

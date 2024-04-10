@@ -3,7 +3,6 @@ package task
 import (
 	"strings"
 
-	crd "github.com/konveyor/tackle2-hub/k8s/api/tackle/v1alpha1"
 	"github.com/konveyor/tackle2-hub/model"
 )
 
@@ -42,7 +41,7 @@ func (r *RuleUnique) Match(ready, other *model.Task) (matched bool) {
 
 // RuleDeps - Task kind dependencies.
 type RuleDeps struct {
-	kinds map[string]crd.Task
+	cluster Cluster
 }
 
 // Match determines the match.
@@ -53,7 +52,7 @@ func (r *RuleDeps) Match(ready, other *model.Task) (matched bool) {
 	if *ready.ApplicationID != *other.ApplicationID {
 		return
 	}
-	def, found := r.kinds[ready.Kind]
+	def, found := r.cluster.tasks[ready.Kind]
 	if !found {
 		return
 	}

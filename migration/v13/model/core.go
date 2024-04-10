@@ -132,7 +132,8 @@ type Task struct {
 	State         string `gorm:"index"`
 	Errors        JSON   `gorm:"type:json"`
 	Pod           string `gorm:"index"`
-	PodRef        uint
+	CPU           uint
+	Memory        uint
 	Retries       int
 	Canceled      bool
 	Report        *TaskReport `gorm:"constraint:OnDelete:CASCADE"`

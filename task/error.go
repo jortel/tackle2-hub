@@ -3,6 +3,7 @@ package task
 import (
 	"errors"
 	"fmt"
+	"strconv"
 )
 
 // KindNotFound used to report profile referenced
@@ -114,6 +115,29 @@ func (e *NotResolved) Error() (s string) {
 
 func (e *NotResolved) Is(err error) (matched bool) {
 	var inst *NotResolved
+	matched = errors.As(err, &inst)
+	return
+}
+
+// PriorityNotFound report priority class not found.
+type PriorityNotFound struct {
+	Name  string
+	Value int
+}
+
+func (e *PriorityNotFound) Error() (s string) {
+	var d string
+	if e.Name != "" {
+		d = fmt.Sprintf("\"%s\"", e.Name)
+	} else {
+		d = strconv.Itoa(e.Value)
+	}
+	s = fmt.Sprintf("Priority %s not-found.", d)
+	return
+}
+
+func (e *PriorityNotFound) Is(err error) (matched bool) {
+	var inst *PriorityNotFound
 	matched = errors.As(err, &inst)
 	return
 }

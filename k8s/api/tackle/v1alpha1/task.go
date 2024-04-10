@@ -24,8 +24,8 @@ import (
 type TaskSpec struct {
 	// Addon selector.
 	Addon []Selector `json:"addon,omitempty"`
-	// Priority
-	Priority int `json:"priority,omitempty"`
+	// Priority class.
+	Priority string `json:"priority,omitempty"`
 	// Dependencies
 	Dependencies []string `json:"dependencies,omitempty"`
 }

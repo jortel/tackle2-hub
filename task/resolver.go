@@ -1,17 +1,13 @@
 package task
 
 import (
-	"context"
-
-	liberr "github.com/jortel/go-utils/error"
 	crd "github.com/konveyor/tackle2-hub/k8s/api/tackle/v1alpha1"
-	k8s "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Resolver used to resolve names and categories.
 type Resolver interface {
 	// Load resources.
-	Load(client k8s.Client) (err error)
+	Load(cluster Cluster) (err error)
 	// Find returns true when the named resource exists.
 	Find(name string) (found bool)
 	// Match returns the resources that provide the capability.
@@ -30,19 +26,9 @@ type AddonResolver struct {
 }
 
 // Load addons.
-func (r *AddonResolver) Load(client k8s.Client) (err error) {
-	addons := crd.AddonList{}
-	err = client.List(
-		context.TODO(),
-		&addons,
-		k8s.InNamespace(Settings.Hub.Namespace))
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
+func (r *AddonResolver) Load(cluster Cluster) (err error) {
 	r.addons = make(map[string]*crd.Addon)
-	for i := range addons.Items {
-		addon := &addons.Items[i]
+	for _, addon := range cluster.addons {
 		if addon.Spec.Task == r.task {
 			r.addons[addon.Name] = addon
 		}
@@ -76,19 +62,9 @@ type ExtensionResolver struct {
 }
 
 // Load extensions compatible with the addon.
-func (r *ExtensionResolver) Load(client k8s.Client) (err error) {
-	extensions := crd.ExtensionList{}
-	err = client.List(
-		context.TODO(),
-		&extensions,
-		k8s.InNamespace(Settings.Hub.Namespace))
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
+func (r *ExtensionResolver) Load(cluster Cluster) (err error) {
 	r.extensions = make(map[string]*crd.Extension)
-	for i := range extensions.Items {
-		extension := &extensions.Items[i]
+	for _, extension := range cluster.extensions {
 		if r.addon == extension.Spec.Addon {
 			r.extensions[extension.Name] = extension
 		}

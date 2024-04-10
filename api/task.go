@@ -575,6 +575,8 @@ type Task struct {
 	State       string       `json:"state"`
 	Image       string       `json:"image,omitempty" yaml:",omitempty"`
 	Pod         string       `json:"pod,omitempty" yaml:",omitempty"`
+	CPU         uint         `json:"cpu,omitempty" yaml:",omitempty"`
+	Memory      uint         `json:"memory,omitempty" yaml:",omitempty"`
 	Retries     int          `json:"retries,omitempty" yaml:",omitempty"`
 	Started     *time.Time   `json:"started,omitempty" yaml:",omitempty"`
 	Terminated  *time.Time   `json:"terminated,omitempty" yaml:",omitempty"`
@@ -601,6 +603,8 @@ func (r *Task) With(m *model.Task) {
 	r.Started = m.Started
 	r.Terminated = m.Terminated
 	r.Pod = m.Pod
+	r.CPU = m.CPU
+	r.Memory = m.Memory
 	r.Retries = m.Retries
 	r.Canceled = m.Canceled
 	_ = json.Unmarshal(m.Data, &r.Data)

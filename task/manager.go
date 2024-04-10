@@ -24,6 +24,7 @@ import (
 	"gopkg.in/yaml.v2"
 	"gorm.io/gorm"
 	core "k8s.io/api/core/v1"
+	sched "k8s.io/api/scheduling/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8s "sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,13 +69,13 @@ type Manager struct {
 	Client k8s.Client
 	// Addon token scopes.
 	Scopes []string
-	// Kinds of tasks.
-	kinds map[string]crd.Task
+	//
+	cluster Cluster
 }
 
 // Run the manager.
 func (m *Manager) Run(ctx context.Context) {
-	m.kinds = make(map[string]crd.Task)
+	m.cluster.Client = m.Client
 	auth.Validators = append(
 		auth.Validators,
 		&Validator{
@@ -88,9 +89,15 @@ func (m *Manager) Run(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			default:
-				m.updateRunning()
-				m.startReady()
-				m.pause()
+				err := m.cluster.Refresh()
+				if err == nil {
+					m.updateRunning()
+					m.startReady()
+					m.pause()
+				} else {
+					Log.Error(err, "")
+					m.pause()
+				}
 			}
 		}
 	}()
@@ -115,12 +122,7 @@ func (m *Manager) startReady() {
 			Pending,
 			Running,
 		})
-	Log.Error(result.Error, "")
 	if result.Error != nil {
-		return
-	}
-	err := m.refreshKinds()
-	if err != nil {
 		Log.Error(result.Error, "")
 		return
 	}
@@ -131,13 +133,25 @@ func (m *Manager) startReady() {
 			task.State = Failed
 			task.Terminated = &mark
 			task.Error("Error", "Hub is disconnected.")
-			sErr := m.DB.Save(task).Error
-			Log.Error(sErr, "")
+			err := m.DB.Save(task).Error
+			if err != nil {
+				Log.Error(err, "")
+				return
+			}
 			continue
 		}
 		if task.Canceled {
 			m.canceled(task)
+			continue
 		}
+	}
+	pE := Priority{cluster: m.cluster}
+	escalated := pE.Escalate(list)
+	for _, task := range escalated {
+		Log.V(1).Info(
+			"Priority escalated.",
+			"id",
+			task.ID)
 	}
 	for i := range list {
 		task := &list[i]
@@ -146,19 +160,15 @@ func (m *Manager) startReady() {
 			Postponed:
 			task.State = Ready
 			ready := task
-			postponed, caused := m.postpone(ready, list)
+			postponed := m.postpone(ready, list)
 			if postponed {
 				ready.State = Postponed
 				Log.Info("Task postponed.", "id", ready.ID)
-				sErr := m.DB.Save(ready).Error
-				Log.Error(sErr, "")
-				for i := range caused {
-					switch caused[i].State {
-					case Ready,
-						Postponed:
-						sErr := m.DB.Save(caused[i]).Error
-						Log.Error(sErr, "")
-					}
+				db = m.DB.Omit("priority")
+				err := db.Save(ready).Error
+				if err != nil {
+					Log.Error(err, "")
+					return
 				}
 			}
 		}
@@ -171,32 +181,51 @@ func (m *Manager) startReady() {
 			return it.Priority > jt.Priority ||
 				it.ID < jt.ID
 		})
-	weight := 0
-	weightLimit := Settings.Hub.Task.WeightLimit
+	cpu, memory := m.cluster.capacity()
+	quota := struct {
+		memory uint
+		cpu    uint
+	}{
+		memory: memory,
+		cpu:    cpu,
+	}
+	used := struct {
+		memory uint
+		cpu    uint
+	}{}
 	for i := range list {
 		task := &list[i]
-		if task.State != Ready {
-			continue
-		}
-		if weight >= weightLimit {
-			Log.V(1).Info("Weight Limit - reached.")
+		if used.cpu > quota.cpu || used.memory > quota.memory {
+			Log.V(1).Info("Resource quota reached.")
 			break
 		}
-		ready := task
-		if ready.Retries == 0 {
-			metrics.TasksInitiated.Inc()
+		switch task.State {
+		case Pending,
+			Running:
+			used.memory += task.Memory
+			used.cpu += task.CPU
+		case Ready:
+			ready := task
+			if ready.Retries == 0 {
+				metrics.TasksInitiated.Inc()
+			}
+			rt := Task{ready}
+			err := rt.Run(m.DB, m.cluster)
+			if err != nil {
+				ready.State = Failed
+				Log.Error(err, "")
+			} else {
+				Log.Info("Task started.", "id", ready.ID)
+				used.memory += task.Memory
+				used.cpu += task.CPU
+			}
+			db = m.DB.Omit("priority")
+			err = db.Save(ready).Error
+			if err != nil {
+				Log.Error(err, "")
+				return
+			}
 		}
-		rt := Task{ready}
-		w, err := rt.Run(m.DB, m.Client)
-		if err != nil {
-			ready.State = Failed
-			Log.Error(err, "")
-		} else {
-			Log.Info("Task started.", "id", ready.ID)
-			weight += w
-		}
-		err = m.DB.Save(ready).Error
-		Log.Error(err, "")
 	}
 }
 
@@ -221,7 +250,7 @@ func (m *Manager) updateRunning() {
 			continue
 		}
 		rt := Task{&running}
-		pod, err := rt.Reflect(m.DB, m.Client)
+		pod, err := rt.Reflect(m.DB, m.cluster)
 		if err != nil {
 			Log.Error(err, "")
 			continue
@@ -247,31 +276,13 @@ func (m *Manager) updateRunning() {
 	}
 }
 
-// refreshKinds refresh kind map.
-func (m *Manager) refreshKinds() (err error) {
-	m.kinds = make(map[string]crd.Task)
-	list := crd.TaskList{}
-	err = m.Client.List(
-		context.TODO(),
-		&list,
-		&k8s.ListOptions{Namespace: Settings.Namespace})
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	for _, task := range list.Items {
-		m.kinds[task.Name] = task
-	}
-	return
-}
-
 // postpone Postpones a task as needed based on rules.
-func (m *Manager) postpone(ready *model.Task, list []model.Task) (matched bool, caused []*model.Task) {
+func (m *Manager) postpone(ready *model.Task, list []model.Task) (matched bool) {
 	ruleSet := []Rule{
 		&RuleIsolated{},
 		&RuleUnique{},
 		&RuleDeps{
-			kinds: m.kinds,
+			cluster: m.cluster,
 		},
 	}
 	for i := range list {
@@ -284,8 +295,6 @@ func (m *Manager) postpone(ready *model.Task, list []model.Task) (matched bool, 
 			Pending:
 			for _, rule := range ruleSet {
 				if rule.Match(ready, other) {
-					m.escalate(ready, other)
-					caused = append(caused, other)
 					matched = true
 				}
 			}
@@ -293,23 +302,6 @@ func (m *Manager) postpone(ready *model.Task, list []model.Task) (matched bool, 
 	}
 
 	return
-}
-
-// escalate priority.
-// prevents priority inversions.
-func (m *Manager) escalate(ready, caused *model.Task) {
-	if ready.Priority <= caused.Priority {
-		return
-	}
-	caused.Priority = ready.Priority
-	Log.Info(
-		"Priority escalated.",
-		"id",
-		caused.ID,
-		"priority",
-		caused.Priority,
-		"match",
-		ready.ID)
 }
 
 // The task has been canceled.
@@ -480,7 +472,8 @@ type Task struct {
 }
 
 // Run the specified task.
-func (r *Task) Run(db *gorm.DB, client k8s.Client) (weight int, err error) {
+func (r *Task) Run(db *gorm.DB, cluster Cluster) (err error) {
+	client := cluster.Client
 	mark := time.Now()
 	defer func() {
 		if err != nil {
@@ -489,19 +482,16 @@ func (r *Task) Run(db *gorm.DB, client k8s.Client) (weight int, err error) {
 			r.State = Failed
 		}
 	}()
-	owner, err := r.findTackle(client)
+	err = r.selectAddon(db, cluster)
 	if err != nil {
 		return
 	}
-	err = r.selectAddon(db, client)
-	if err != nil {
+	addon, found := cluster.addons[r.Addon]
+	if !found {
+		err = &AddonNotFound{Name: r.Addon}
 		return
 	}
-	addon, err := r.getAddon(client)
-	if err != nil {
-		return
-	}
-	err = r.selectExtensions(db, client, addon)
+	err = r.selectExtensions(db, cluster, addon)
 	if err != nil {
 		return
 	}
@@ -529,13 +519,18 @@ func (r *Task) Run(db *gorm.DB, client k8s.Client) (weight int, err error) {
 			_ = client.Delete(context.TODO(), &secret)
 		}
 	}()
-	pod := r.pod(addon, extensions, owner, &secret)
+	pod := r.pod(
+		cluster,
+		addon,
+		extensions,
+		cluster.tackle,
+		&secret)
 	err = client.Create(context.TODO(), &pod)
 	if err != nil {
 		err = liberr.Wrap(err)
 		return
 	}
-	weight = r.weight(&pod)
+	r.setResources(&pod)
 	defer func() {
 		if err != nil {
 			_ = client.Delete(context.TODO(), &pod)
@@ -563,23 +558,13 @@ func (r *Task) Run(db *gorm.DB, client k8s.Client) (weight int, err error) {
 }
 
 // Reflect finds the associated pod and updates the task state.
-func (r *Task) Reflect(db *gorm.DB, client k8s.Client) (pod *core.Pod, err error) {
-	pod = &core.Pod{}
-	err = client.Get(
-		context.TODO(),
-		k8s.ObjectKey{
-			Namespace: path.Dir(r.Pod),
-			Name:      path.Base(r.Pod),
-		},
-		pod)
-	if err != nil {
-		if k8serr.IsNotFound(err) {
-			_, err = r.Run(db, client)
-		} else {
-			err = liberr.Wrap(err)
-		}
+func (r *Task) Reflect(db *gorm.DB, cluster Cluster) (pod *core.Pod, err error) {
+	pod, found := cluster.pods[path.Base(r.Pod)]
+	if !found {
+		err = r.Run(db, cluster)
 		return
 	}
+	client := cluster.Client
 	switch pod.Status.Phase {
 	case core.PodPending:
 		r.podPending(pod)
@@ -719,40 +704,13 @@ func (r *Task) podFailed(pod *core.Pod, client k8s.Client) {
 	}
 }
 
-// getKind by name.
-func (r *Task) getKind(client k8s.Client) (kind *crd.Task, err error) {
-	if r.Kind == "" {
-		err = &KindNotFound{r.Addon}
-		return
-	}
-	kind = &crd.Task{}
-	err = client.Get(
-		context.TODO(),
-		k8s.ObjectKey{
-			Namespace: Settings.Hub.Namespace,
-			Name:      r.Kind,
-		},
-		kind)
-	if err != nil {
-		kind = nil
-		if k8serr.IsNotFound(err) {
-			err = &KindNotFound{r.Addon}
-		} else {
-			err = liberr.Wrap(err)
-		}
-		return
-	}
-
-	return
-}
-
 // selectAddon select an addon when not specified.
-func (r *Task) selectAddon(db *gorm.DB, client k8s.Client) (err error) {
+func (r *Task) selectAddon(db *gorm.DB, cluster Cluster) (err error) {
 	if r.Addon != "" {
 		return
 	}
-	kind, err := r.getKind(client)
-	if err != nil {
+	kind, found := cluster.tasks[r.Kind]
+	if !found {
 		return
 	}
 	selected := ""
@@ -763,7 +721,7 @@ func (r *Task) selectAddon(db *gorm.DB, client k8s.Client) (err error) {
 		resolver := &AddonResolver{
 			task: kind.Name,
 		}
-		err = resolver.Load(client)
+		err = resolver.Load(cluster)
 		if err != nil {
 			return
 		}
@@ -788,30 +746,8 @@ func (r *Task) selectAddon(db *gorm.DB, client k8s.Client) (err error) {
 	return
 }
 
-// getAddon by name.
-func (r *Task) getAddon(client k8s.Client) (addon *crd.Addon, err error) {
-	addon = &crd.Addon{}
-	err = client.Get(
-		context.TODO(),
-		k8s.ObjectKey{
-			Namespace: Settings.Hub.Namespace,
-			Name:      r.Addon,
-		},
-		addon)
-	if err != nil {
-		if k8serr.IsNotFound(err) {
-			err = &AddonNotFound{r.Addon}
-		} else {
-			err = liberr.Wrap(err)
-		}
-		return
-	}
-
-	return
-}
-
 // selectExtensions select extensions when not specified.
-func (r *Task) selectExtensions(db *gorm.DB, client k8s.Client, addon *crd.Addon) (err error) {
+func (r *Task) selectExtensions(db *gorm.DB, cluster Cluster, addon *crd.Addon) (err error) {
 	var extensions []string
 	if r.Extensions != nil {
 		_ = json.Unmarshal(r.Extensions, &extensions)
@@ -827,7 +763,7 @@ func (r *Task) selectExtensions(db *gorm.DB, client k8s.Client, addon *crd.Addon
 		resolver := &ExtensionResolver{
 			addon: addon.Name,
 		}
-		err = resolver.Load(client)
+		err = resolver.Load(cluster)
 		if err != nil {
 			return
 		}
@@ -881,31 +817,14 @@ func (r *Task) getExtensions(client k8s.Client) (extensions []crd.Extension, err
 	return
 }
 
-// findTackle returns the tackle CR.
-func (r *Task) findTackle(client k8s.Client) (owner *crd.Tackle, err error) {
-	list := crd.TackleList{}
-	err = client.List(
-		context.TODO(),
-		&list,
-		&k8s.ListOptions{Namespace: Settings.Namespace})
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	if len(list.Items) == 0 {
-		err = liberr.New("Tackle CR not found.")
-		return
-	}
-	owner = &list.Items[0]
-	return
-}
-
 // pod build the pod.
 func (r *Task) pod(
+	cluster Cluster,
 	addon *crd.Addon,
 	extensions []crd.Extension,
 	owner *crd.Tackle,
 	secret *core.Secret) (pod core.Pod) {
+	//
 	pod = core.Pod{
 		Spec: r.specification(addon, extensions, secret),
 		ObjectMeta: meta.ObjectMeta{
@@ -914,6 +833,7 @@ func (r *Task) pod(
 			Labels:       r.labels(),
 		},
 	}
+	r.setPriority(cluster, &pod)
 	pod.OwnerReferences = append(
 		pod.OwnerReferences,
 		meta.OwnerReference{
@@ -922,8 +842,33 @@ func (r *Task) pod(
 			Name:       owner.Name,
 			UID:        owner.UID,
 		})
-
 	return
+}
+
+// setPriority sets the pod priority class.
+func (r *Task) setPriority(cluster Cluster, pod *core.Pod) {
+	if r.Priority > 0 {
+		p, found := cluster.priority.values[r.Priority]
+		if !found {
+			err := &PriorityNotFound{Value: r.Priority}
+			Log.Error(err, "")
+		} else {
+			pod.Spec.PriorityClassName = p.Name
+			return
+		}
+	}
+	kind, found := cluster.tasks[r.Kind]
+	if !found {
+		return
+	}
+	name := kind.Spec.Priority
+	p, found := cluster.priority.names[name]
+	if !found {
+		err := &PriorityNotFound{Name: name}
+		Log.Error(err, "")
+		return
+	}
+	pod.Spec.PriorityClassName = p.Name
 }
 
 // specification builds a Pod specification.
@@ -1097,24 +1042,19 @@ func (r *Task) attach(file *model.File) {
 	r.Attached, _ = json.Marshal(attached)
 }
 
-// weight estimates the pod weight.
-func (r *Task) weight(pod *core.Pod) (weight int) {
-	weight = 1
+// setResources -
+func (r *Task) setResources(pod *core.Pod) {
 	for _, cont := range pod.Spec.Containers {
 		request := cont.Resources.Requests
-		w := int64(1)
-		memory := request.Memory()
-		if memory != nil {
-			n := memory.Value()
-			w += n / int64(100000000) // 100MB
-		}
 		cpu := request.Cpu()
 		if cpu != nil {
 			n := cpu.Value()
-			w = n * w
+			r.CPU = uint(n)
 		}
-		if int(w) > weight {
-			weight = int(w)
+		memory := request.Memory()
+		if memory != nil {
+			n := memory.Value()
+			r.Memory = uint(n)
 		}
 	}
 	return
@@ -1127,6 +1067,271 @@ type Event struct {
 	Age      string
 	Reporter string
 	Message  string
+}
+
+// Priority escalator.
+type Priority struct {
+	cluster Cluster
+}
+
+// Escalate tasks as needed.
+func (p *Priority) Escalate(ready []model.Task) (escalated []*model.Task) {
+	_, escalated = p.escalate(ready)
+	escalated = p.unique(escalated)
+	return
+}
+
+// escalate tasks.
+func (p *Priority) escalate(ready []model.Task) (pushed, escalated []*model.Task) {
+	for i := range ready {
+		task := &ready[i]
+		if task.State != Ready {
+			continue
+		}
+		kind, found := p.cluster.tasks[task.Kind]
+		if !found {
+			continue
+		}
+		pushed = append(pushed, task)
+		for _, d := range kind.Spec.Dependencies {
+			next := ready[i+1:]
+			for r := range next {
+				nt := &next[r]
+				if nt.Kind == d &&
+					nt.ApplicationID == task.ApplicationID {
+					innerPushed, innerEscalated := p.escalate(next[r:])
+					pushed = append(
+						pushed,
+						innerPushed...)
+					escalated = append(
+						escalated,
+						innerEscalated...)
+				}
+			}
+		}
+		p0 := pushed[0].Priority
+		for p := range pushed[1:] {
+			pP := pushed[p].Priority
+			if pP < p0 {
+				pushed[p].Priority = p0
+				escalated = append(
+					escalated,
+					pushed[p])
+			}
+		}
+	}
+	return
+}
+
+// unique returns a unique list of tasks.
+func (p *Priority) unique(in []*model.Task) (out []*model.Task) {
+	mp := make(map[uint]*model.Task)
+	for _, ptr := range in {
+		mp[ptr.ID] = ptr
+	}
+	for _, ptr := range mp {
+		out = append(out, ptr)
+	}
+	return
+}
+
+type Cluster struct {
+	k8s.Client
+	tackle     *crd.Tackle
+	addons     map[string]*crd.Addon
+	extensions map[string]*crd.Extension
+	tasks      map[string]*crd.Task
+	priority   struct {
+		names  map[string]*sched.PriorityClass
+		values map[int]*sched.PriorityClass
+	}
+	nodes []*core.Node
+	pods  map[string]*core.Pod
+}
+
+func (k *Cluster) Refresh() (err error) {
+	err = k.getTackle()
+	if err != nil {
+		return
+	}
+	err = k.getAddons()
+	if err != nil {
+		return
+	}
+	err = k.getExtensions()
+	if err != nil {
+		return
+	}
+	err = k.getTasks()
+	if err != nil {
+		return
+	}
+	err = k.getNodes()
+	if err != nil {
+		return
+	}
+	err = k.getPriorities()
+	if err != nil {
+		return
+	}
+	err = k.getPods()
+	if err != nil {
+		return
+	}
+	return
+}
+
+// getTackle
+func (k *Cluster) getTackle() (err error) {
+	options := &k8s.ListOptions{Namespace: Settings.Namespace}
+	list := crd.TackleList{}
+	err = k.List(
+		context.TODO(),
+		&list,
+		options)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	for i := range list.Items {
+		r := &list.Items[i]
+		k.tackle = r
+		return
+	}
+	err = liberr.New("Tackle CR not found.")
+	return
+}
+
+// getAddons
+func (k *Cluster) getAddons() (err error) {
+	k.addons = make(map[string]*crd.Addon)
+	options := &k8s.ListOptions{Namespace: Settings.Namespace}
+	list := crd.AddonList{}
+	err = k.List(
+		context.TODO(),
+		&list,
+		options)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	for i := range list.Items {
+		r := &list.Items[i]
+		k.addons[r.Name] = r
+	}
+	return
+}
+
+// getExtensions
+func (k *Cluster) getExtensions() (err error) {
+	k.extensions = make(map[string]*crd.Extension)
+	options := &k8s.ListOptions{Namespace: Settings.Namespace}
+	list := crd.ExtensionList{}
+	err = k.List(
+		context.TODO(),
+		&list,
+		options)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	for i := range list.Items {
+		r := &list.Items[i]
+		k.extensions[r.Name] = r
+	}
+	return
+}
+
+// getTasks kinds.
+func (k *Cluster) getTasks() (err error) {
+	k.tasks = make(map[string]*crd.Task)
+	options := &k8s.ListOptions{Namespace: Settings.Namespace}
+	list := crd.TaskList{}
+	err = k.List(
+		context.TODO(),
+		&list,
+		options)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	for i := range list.Items {
+		r := &list.Items[i]
+		k.tasks[r.Name] = r
+	}
+	return
+}
+
+// getNodes
+func (k *Cluster) getNodes() (err error) {
+	k.nodes = make([]*core.Node, 0)
+	list := core.NodeList{}
+	err = k.List(context.TODO(), &list)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	for i := range list.Items {
+		r := &list.Items[i]
+		k.nodes = append(k.nodes, r)
+	}
+	return
+}
+
+// getPriorities classes.
+func (k *Cluster) getPriorities() (err error) {
+	k.priority.names = make(map[string]*sched.PriorityClass)
+	k.priority.values = make(map[int]*sched.PriorityClass)
+	list := sched.PriorityClassList{}
+	err = k.List(context.TODO(), &list)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	for i := range list.Items {
+		r := &list.Items[i]
+		k.priority.names[r.Name] = r
+		k.priority.values[int(r.Value)] = r
+	}
+	return
+}
+
+// getPods
+func (k *Cluster) getPods() (err error) {
+	k.pods = make(map[string]*core.Pod)
+	options := &k8s.ListOptions{Namespace: Settings.Namespace}
+	list := core.PodList{}
+	err = k.List(
+		context.TODO(),
+		&list,
+		options)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	for i := range list.Items {
+		r := &list.Items[i]
+		k.pods[r.Name] = r
+	}
+	return
+}
+
+// capacity estimates node capacity adjusted by task quota.
+func (k *Cluster) capacity() (cpu uint, memory uint) {
+	quota := Settings.Hub.Task.Quota
+	for _, node := range k.nodes {
+		r := node.Status.Capacity.Cpu()
+		n := r.Value()
+		f := float32(n)
+		f = f * quota
+		cpu = uint(f)
+		r = node.Status.Capacity.Memory()
+		n = r.Value()
+		f = float32(n)
+		f = f * quota
+		memory = uint(f)
+	}
+	return
 }
 
 // ExtEnv returns an environment variable named namespaced to an extension.
