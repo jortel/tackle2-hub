@@ -188,7 +188,6 @@ func (m *Manager) startReady() {
 			continue
 		}
 		ready := task
-
 		rt := Task{ready}
 		err := rt.Run(m.DB, m.cluster)
 		if err != nil {
