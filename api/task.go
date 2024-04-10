@@ -603,8 +603,6 @@ func (r *Task) With(m *model.Task) {
 	r.Started = m.Started
 	r.Terminated = m.Terminated
 	r.Pod = m.Pod
-	r.CPU = m.CPU
-	r.Memory = m.Memory
 	r.Retries = m.Retries
 	r.Canceled = m.Canceled
 	_ = json.Unmarshal(m.Data, &r.Data)

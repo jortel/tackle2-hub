@@ -192,7 +192,7 @@ func (m *Manager) startReady() {
 		err := rt.Run(m.DB, m.cluster)
 		if err != nil {
 			if errors.Is(err, &QuotaExceeded{}) {
-				Log.V(1).Info(err.Error())
+				Log.Info(err.Error())
 				err = nil
 				continue
 			}
@@ -459,7 +459,7 @@ func (r *Task) Run(db *gorm.DB, cluster Cluster) (err error) {
 	client := cluster.Client
 	mark := time.Now()
 	defer func() {
-		if err != nil {
+		if err != nil && !errors.Is(err, &QuotaExceeded{}) {
 			r.Error("Error", err.Error())
 			r.Terminated = &mark
 			r.State = Failed
@@ -521,7 +521,6 @@ func (r *Task) Run(db *gorm.DB, cluster Cluster) (err error) {
 		err = liberr.Wrap(err)
 		return
 	}
-	r.setResources(&pod)
 	defer func() {
 		if err != nil {
 			_ = client.Delete(context.TODO(), &pod)
@@ -1031,24 +1030,6 @@ func (r *Task) setPriority(cluster Cluster) (name string, err error) {
 			return
 		}
 		r.Priority = int(p.Value)
-	}
-	return
-}
-
-// setResources -
-func (r *Task) setResources(pod *core.Pod) {
-	for _, cont := range pod.Spec.Containers {
-		request := cont.Resources.Requests
-		cpu := request.Cpu()
-		if cpu != nil {
-			n := cpu.Value()
-			r.CPU = uint(n)
-		}
-		memory := request.Memory()
-		if memory != nil {
-			n := memory.Value()
-			r.Memory = uint(n)
-		}
 	}
 	return
 }
