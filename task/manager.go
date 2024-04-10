@@ -76,7 +76,6 @@ type Manager struct {
 
 // Run the manager.
 func (m *Manager) Run(ctx context.Context) {
-	m.DB = m.DB.Omit("priority")
 	m.cluster.Client = m.Client
 	auth.Validators = append(
 		auth.Validators,
@@ -204,7 +203,8 @@ func (m *Manager) startReady() {
 				metrics.TasksInitiated.Inc()
 			}
 		}
-		err = m.DB.Save(ready).Error
+		db := m.DB.Omit("priority")
+		err = db.Save(ready).Error
 		if err != nil {
 			Log.Error(err, "")
 			return
