@@ -486,6 +486,10 @@ func (r *Task) Run(db *gorm.DB, cluster Cluster) (err error) {
 	if err != nil {
 		return
 	}
+	priority, err := r.setPriority(cluster)
+	if err != nil {
+		return
+	}
 	addon, found := cluster.addons[r.Addon]
 	if !found {
 		err = &AddonNotFound{Name: r.Addon}
@@ -520,7 +524,7 @@ func (r *Task) Run(db *gorm.DB, cluster Cluster) (err error) {
 		}
 	}()
 	pod := r.pod(
-		cluster,
+		priority,
 		addon,
 		extensions,
 		cluster.tackle,
@@ -819,7 +823,7 @@ func (r *Task) getExtensions(client k8s.Client) (extensions []crd.Extension, err
 
 // pod build the pod.
 func (r *Task) pod(
-	cluster Cluster,
+	priority string,
 	addon *crd.Addon,
 	extensions []crd.Extension,
 	owner *crd.Tackle,
@@ -833,7 +837,7 @@ func (r *Task) pod(
 			Labels:       r.labels(),
 		},
 	}
-	r.setPriority(cluster, &pod)
+	pod.Spec.PriorityClassName = priority
 	pod.OwnerReferences = append(
 		pod.OwnerReferences,
 		meta.OwnerReference{
@@ -843,32 +847,6 @@ func (r *Task) pod(
 			UID:        owner.UID,
 		})
 	return
-}
-
-// setPriority sets the pod priority class.
-func (r *Task) setPriority(cluster Cluster, pod *core.Pod) {
-	if r.Priority > 0 {
-		p, found := cluster.priority.values[r.Priority]
-		if !found {
-			err := &PriorityNotFound{Value: r.Priority}
-			Log.Error(err, "")
-		} else {
-			pod.Spec.PriorityClassName = p.Name
-			return
-		}
-	}
-	kind, found := cluster.tasks[r.Kind]
-	if !found {
-		return
-	}
-	name := kind.Spec.Priority
-	p, found := cluster.priority.names[name]
-	if !found {
-		err := &PriorityNotFound{Name: name}
-		Log.Error(err, "")
-		return
-	}
-	pod.Spec.PriorityClassName = p.Name
 }
 
 // specification builds a Pod specification.
@@ -1040,6 +1018,30 @@ func (r *Task) attach(file *model.File) {
 			Name: file.Name,
 		})
 	r.Attached, _ = json.Marshal(attached)
+}
+
+// setPriority sets the pod priority class.
+func (r *Task) setPriority(cluster Cluster) (name string, err error) {
+	if r.Priority > 0 {
+		p, found := cluster.priority.values[r.Priority]
+		if !found {
+			err = &PriorityNotFound{Value: r.Priority}
+		} else {
+			name = p.Name
+		}
+		return
+	}
+	kind, found := cluster.tasks[r.Kind]
+	if found {
+		name = kind.Spec.Priority
+		p, found := cluster.priority.names[name]
+		if !found {
+			err = &PriorityNotFound{Name: name}
+			return
+		}
+		r.Priority = int(p.Value)
+	}
+	return
 }
 
 // setResources -
