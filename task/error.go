@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
+
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // KindNotFound used to report profile referenced
@@ -138,6 +141,37 @@ func (e *PriorityNotFound) Error() (s string) {
 
 func (e *PriorityNotFound) Is(err error) (matched bool) {
 	var inst *PriorityNotFound
+	matched = errors.As(err, &inst)
+	return
+}
+
+// QuotaExceeded report priority class not found.
+type QuotaExceeded struct {
+	Reason string
+}
+
+// Match returns true when the error is Forbidden due to quota exceeded.
+func (e *QuotaExceeded) Match(err error) (matched bool) {
+	if k8serr.IsForbidden(err) {
+		matched = true
+		e.Reason = err.Error()
+		for _, s := range []string{"exceeded", "quota"} {
+			matched = strings.Contains(e.Reason, s)
+			if !matched {
+				break
+			}
+		}
+	}
+	return
+}
+
+func (e *QuotaExceeded) Error() (s string) {
+
+	return
+}
+
+func (e *QuotaExceeded) Is(err error) (matched bool) {
+	var inst *QuotaExceeded
 	matched = errors.As(err, &inst)
 	return
 }

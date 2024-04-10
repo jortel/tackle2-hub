@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -69,12 +70,13 @@ type Manager struct {
 	Client k8s.Client
 	// Addon token scopes.
 	Scopes []string
-	//
+	// cluster resources.
 	cluster Cluster
 }
 
 // Run the manager.
 func (m *Manager) Run(ctx context.Context) {
+	m.DB = m.DB.Omit("priority")
 	m.cluster.Client = m.Client
 	auth.Validators = append(
 		auth.Validators,
@@ -164,8 +166,7 @@ func (m *Manager) startReady() {
 			if postponed {
 				ready.State = Postponed
 				Log.Info("Task postponed.", "id", ready.ID)
-				db = m.DB.Omit("priority")
-				err := db.Save(ready).Error
+				err := m.DB.Save(ready).Error
 				if err != nil {
 					Log.Error(err, "")
 					return
@@ -181,50 +182,33 @@ func (m *Manager) startReady() {
 			return it.Priority > jt.Priority ||
 				it.ID < jt.ID
 		})
-	cpu, memory := m.cluster.capacity()
-	quota := struct {
-		memory uint
-		cpu    uint
-	}{
-		memory: memory,
-		cpu:    cpu,
-	}
-	used := struct {
-		memory uint
-		cpu    uint
-	}{}
 	for i := range list {
 		task := &list[i]
-		if used.cpu > quota.cpu || used.memory > quota.memory {
-			Log.V(1).Info("Resource quota reached.")
-			break
+		if task.State != Ready {
+			continue
 		}
-		switch task.State {
-		case Pending,
-			Running:
-			used.memory += task.Memory
-			used.cpu += task.CPU
-		case Ready:
-			ready := task
+		ready := task
+
+		rt := Task{ready}
+		err := rt.Run(m.DB, m.cluster)
+		if err != nil {
+			if errors.Is(err, &QuotaExceeded{}) {
+				Log.V(1).Info(err.Error())
+				err = nil
+				continue
+			}
+			ready.State = Failed
+			Log.Error(err, "")
+		} else {
+			Log.Info("Task started.", "id", ready.ID)
 			if ready.Retries == 0 {
 				metrics.TasksInitiated.Inc()
 			}
-			rt := Task{ready}
-			err := rt.Run(m.DB, m.cluster)
-			if err != nil {
-				ready.State = Failed
-				Log.Error(err, "")
-			} else {
-				Log.Info("Task started.", "id", ready.ID)
-				used.memory += task.Memory
-				used.cpu += task.CPU
-			}
-			db = m.DB.Omit("priority")
-			err = db.Save(ready).Error
-			if err != nil {
-				Log.Error(err, "")
-				return
-			}
+		}
+		err = m.DB.Save(ready).Error
+		if err != nil {
+			Log.Error(err, "")
+			return
 		}
 	}
 }
@@ -531,6 +515,10 @@ func (r *Task) Run(db *gorm.DB, cluster Cluster) (err error) {
 		&secret)
 	err = client.Create(context.TODO(), &pod)
 	if err != nil {
+		quotaExceeded := &QuotaExceeded{}
+		if quotaExceeded.Match(err) {
+			err = quotaExceeded
+		}
 		err = liberr.Wrap(err)
 		return
 	}
@@ -566,6 +554,10 @@ func (r *Task) Reflect(db *gorm.DB, cluster Cluster) (pod *core.Pod, err error) 
 	pod, found := cluster.pods[path.Base(r.Pod)]
 	if !found {
 		err = r.Run(db, cluster)
+		if errors.Is(err, &QuotaExceeded{}) {
+			Log.V(1).Info(err.Error())
+			err = nil
+		}
 		return
 	}
 	client := cluster.Client
@@ -1147,8 +1139,7 @@ type Cluster struct {
 		names  map[string]*sched.PriorityClass
 		values map[int]*sched.PriorityClass
 	}
-	nodes []*core.Node
-	pods  map[string]*core.Pod
+	pods map[string]*core.Pod
 }
 
 func (k *Cluster) Refresh() (err error) {
@@ -1165,10 +1156,6 @@ func (k *Cluster) Refresh() (err error) {
 		return
 	}
 	err = k.getTasks()
-	if err != nil {
-		return
-	}
-	err = k.getNodes()
 	if err != nil {
 		return
 	}
@@ -1264,22 +1251,6 @@ func (k *Cluster) getTasks() (err error) {
 	return
 }
 
-// getNodes
-func (k *Cluster) getNodes() (err error) {
-	k.nodes = make([]*core.Node, 0)
-	list := core.NodeList{}
-	err = k.List(context.TODO(), &list)
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	for i := range list.Items {
-		r := &list.Items[i]
-		k.nodes = append(k.nodes, r)
-	}
-	return
-}
-
 // getPriorities classes.
 func (k *Cluster) getPriorities() (err error) {
 	k.priority.names = make(map[string]*sched.PriorityClass)
@@ -1314,24 +1285,6 @@ func (k *Cluster) getPods() (err error) {
 	for i := range list.Items {
 		r := &list.Items[i]
 		k.pods[r.Name] = r
-	}
-	return
-}
-
-// capacity estimates node capacity adjusted by task quota.
-func (k *Cluster) capacity() (cpu uint, memory uint) {
-	quota := Settings.Hub.Task.Quota
-	for _, node := range k.nodes {
-		r := node.Status.Capacity.Cpu()
-		n := r.Value()
-		f := float32(n)
-		f = f * quota
-		cpu = uint(f)
-		r = node.Status.Capacity.Memory()
-		n = r.Value()
-		f = float32(n)
-		f = f * quota
-		memory = uint(f)
 	}
 	return
 }
