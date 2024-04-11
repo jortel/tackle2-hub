@@ -166,8 +166,7 @@ func (e *QuotaExceeded) Match(err error) (matched bool) {
 }
 
 func (e *QuotaExceeded) Error() (s string) {
-
-	return
+	return e.Reason
 }
 
 func (e *QuotaExceeded) Is(err error) (matched bool) {
