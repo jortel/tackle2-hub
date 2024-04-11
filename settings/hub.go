@@ -28,7 +28,6 @@ const (
 	EnvAppName            = "APP_NAME"
 	EnvDisconnected       = "DISCONNECTED"
 	EnvAnalysisReportPath = "ANALYSIS_REPORT_PATH"
-	EnvTaskQuota          = "TASK_QUOTA"
 )
 
 type Hub struct {
@@ -66,7 +65,6 @@ type Hub struct {
 	Task struct {
 		SA      string
 		Retries int
-		Quota   float32
 		Reaper  struct { // minutes.
 			Created   int
 			Succeeded int
@@ -161,16 +159,6 @@ func (r *Hub) Load() (err error) {
 		r.Task.Retries = n
 	} else {
 		r.Task.Retries = 1
-	}
-	s, found = os.LookupEnv(EnvTaskQuota)
-	if found {
-		n, _ := strconv.Atoi(s)
-		if n > 100 {
-			n = 100
-		}
-		r.Task.Quota = float32(n / 100)
-	} else {
-		r.Task.Quota = .80 // 80%
 	}
 	s, found = os.LookupEnv(EnvFrequencyTask)
 	if found {
