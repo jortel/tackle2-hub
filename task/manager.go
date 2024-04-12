@@ -149,6 +149,21 @@ func (m *Manager) startReady() {
 	pE := Priority{cluster: m.cluster}
 	escalated := pE.Escalate(list)
 	for _, task := range escalated {
+		if task.State == Pending {
+			rt := Task{task}
+			err := rt.Delete(m.Client)
+			if err != nil {
+				Log.Error(err, "")
+				return
+			}
+			task.State = Ready
+			db := m.DB.Omit("priority")
+			err = db.Save(task).Error
+			if err != nil {
+				Log.Error(err, "")
+				return
+			}
+		}
 		Log.V(1).Info(
 			"Priority escalated.",
 			"id",
