@@ -149,6 +149,7 @@ func (m *Manager) startReady() {
 	pE := Priority{cluster: m.cluster}
 	escalated := pE.Escalate(list)
 	for _, task := range escalated {
+		Log.V(1).Info("Priority escalated.", "id", task.ID)
 		if task.State == Pending {
 			rt := Task{task}
 			err := rt.Delete(m.Client)
@@ -164,10 +165,6 @@ func (m *Manager) startReady() {
 				return
 			}
 		}
-		Log.V(1).Info(
-			"Priority escalated.",
-			"id",
-			task.ID)
 	}
 	for i := range list {
 		task := &list[i]
