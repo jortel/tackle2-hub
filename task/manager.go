@@ -112,6 +112,10 @@ func (m *Manager) pause() {
 
 // startReady starts ready tasks.
 func (m *Manager) startReady() {
+	var err error
+	defer func() {
+		Log.Error(err, "")
+	}()
 	list := []model.Task{}
 	db := m.DB.Order("priority DESC, id")
 	result := db.Find(
@@ -124,66 +128,23 @@ func (m *Manager) startReady() {
 			Running,
 		})
 	if result.Error != nil {
-		Log.Error(result.Error, "")
 		return
 	}
-	for i := range list {
-		task := &list[i]
-		if Settings.Disconnected {
-			mark := time.Now()
-			task.State = Failed
-			task.Terminated = &mark
-			task.Error("Error", "Hub is disconnected.")
-			err := m.DB.Save(task).Error
-			if err != nil {
-				Log.Error(err, "")
-				return
-			}
-			continue
-		}
-		if task.Canceled {
-			m.canceled(task)
-			continue
-		}
+	err = m.disconnected(list)
+	if err != nil {
+		return
 	}
-	pE := Priority{cluster: m.cluster}
-	escalated := pE.Escalate(list)
-	for _, task := range escalated {
-		Log.V(1).Info("Priority escalated.", "id", task.ID)
-		if task.State == Pending {
-			rt := Task{task}
-			err := rt.Delete(m.Client)
-			if err != nil {
-				Log.Error(err, "")
-				return
-			}
-			task.State = Ready
-			db := m.DB.Omit("priority")
-			err = db.Save(task).Error
-			if err != nil {
-				Log.Error(err, "")
-				return
-			}
-		}
+	err = m.canceled(list)
+	if err != nil {
+		return
 	}
-	for i := range list {
-		task := &list[i]
-		switch task.State {
-		case Ready,
-			Postponed:
-			task.State = Ready
-			ready := task
-			postponed := m.postpone(ready, list)
-			if postponed {
-				ready.State = Postponed
-				Log.Info("Task postponed.", "id", ready.ID)
-				err := m.DB.Save(ready).Error
-				if err != nil {
-					Log.Error(err, "")
-					return
-				}
-			}
-		}
+	err = m.adjustPriority(list)
+	if err != nil {
+		return
+	}
+	err = m.postpone(list)
+	if err != nil {
+		return
 	}
 	sort.Slice(
 		list,
@@ -203,29 +164,117 @@ func (m *Manager) startReady() {
 		err := rt.Run(m.DB, m.cluster)
 		if err != nil {
 			if errors.Is(err, &QuotaExceeded{}) {
-				Log.Info(err.Error())
+				Log.V(1).Info(err.Error())
 				err = nil
-				continue
+			} else {
+				ready.State = Failed
+				Log.Error(err, "")
+				err = nil
 			}
-			ready.State = Failed
-			Log.Error(err, "")
 		} else {
 			Log.Info("Task started.", "id", ready.ID)
 			if ready.Retries == 0 {
 				metrics.TasksInitiated.Inc()
 			}
 		}
-		db := m.DB.Omit("priority")
 		err = db.Save(ready).Error
 		if err != nil {
-			Log.Error(err, "")
 			return
 		}
 	}
+	return
+}
+
+// disconnected fails tasks when hub is disconnected.
+func (m *Manager) disconnected(list []model.Task) (err error) {
+	if !Settings.Disconnected {
+		return
+	}
+	for i := range list {
+		task := &list[i]
+		mark := time.Now()
+		task.State = Failed
+		task.Terminated = &mark
+		task.Error("Error", "Hub is disconnected.")
+		err = m.DB.Save(task).Error
+		if err != nil {
+			err = liberr.Wrap(err)
+			return
+		}
+	}
+	return
+}
+
+// postpone Postpones a task as needed based on rules.
+func (m *Manager) postpone(list []model.Task) (err error) {
+	ruleSet := []Rule{
+		&RuleIsolated{},
+		&RuleUnique{},
+		&RuleDeps{
+			cluster: m.cluster,
+		},
+	}
+	for i := range list {
+		task := &list[i]
+		if !(task.State == Ready || task.State == Postponed) {
+			continue
+		}
+		ready := task
+		for j := range list {
+			other := &list[j]
+			if ready.ID == other.ID {
+				continue
+			}
+			if !(other.State == Running || other.State == Pending) {
+				continue
+			}
+			for _, rule := range ruleSet {
+				if rule.Match(ready, other) {
+					Log.Info("Task postponed.", "id", ready.ID)
+					err = m.DB.Save(task).Error
+					if err != nil {
+						err = liberr.Wrap(err)
+						return
+					}
+				}
+			}
+		}
+	}
+
+	return
+}
+
+// adjustPriority escalate as needed.
+// When adjusted, Pending tasks pods deleted and made Ready again.
+func (m *Manager) adjustPriority(list []model.Task) (err error) {
+	pE := Priority{cluster: m.cluster}
+	escalated := pE.Escalate(list)
+	for _, task := range escalated {
+		Log.V(1).Info("Priority escalated.", "id", task.ID)
+		if task.State != Pending {
+			continue
+		}
+		rt := Task{task}
+		err = rt.Delete(m.Client)
+		if err != nil {
+			return
+		}
+		task.State = Ready
+		err = m.DB.Save(task).Error
+		if err != nil {
+			err = liberr.Wrap(err)
+			return
+		}
+	}
+	return
 }
 
 // updateRunning tasks to reflect pod state.
 func (m *Manager) updateRunning() {
+	var err error
+	defer func() {
+		Log.Error(err, "")
+	}()
 	list := []model.Task{}
 	db := m.DB.Order("priority DESC, id")
 	result := db.Find(
@@ -235,15 +284,19 @@ func (m *Manager) updateRunning() {
 			Pending,
 			Running,
 		})
-	Log.Error(result.Error, "")
 	if result.Error != nil {
+		err = liberr.Wrap(result.Error)
 		return
 	}
-	for _, running := range list {
-		if running.Canceled {
-			m.canceled(&running)
+	err = m.canceled(list)
+	if err != nil {
+		return
+	}
+	for _, task := range list {
+		if !(task.State == Running || task.State == Pending) {
 			continue
 		}
+		running := task
 		rt := Task{&running}
 		pod, err := rt.Reflect(m.DB, m.cluster)
 		if err != nil {
@@ -264,54 +317,33 @@ func (m *Manager) updateRunning() {
 		}
 		err = m.DB.Save(&running).Error
 		if err != nil {
-			Log.Error(result.Error, "")
-			continue
+			return
 		}
 		Log.V(1).Info("Task updated.", "id", running.ID)
 	}
 }
 
-// postpone Postpones a task as needed based on rules.
-func (m *Manager) postpone(ready *model.Task, list []model.Task) (matched bool) {
-	ruleSet := []Rule{
-		&RuleIsolated{},
-		&RuleUnique{},
-		&RuleDeps{
-			cluster: m.cluster,
-		},
-	}
+// The task has been canceled.
+func (m *Manager) canceled(list []model.Task) (err error) {
 	for i := range list {
-		other := &list[i]
-		if ready.ID == other.ID {
+		task := &list[i]
+		if !task.Canceled {
 			continue
 		}
-		switch other.State {
-		case Running,
-			Pending:
-			for _, rule := range ruleSet {
-				if rule.Match(ready, other) {
-					matched = true
-				}
-			}
+		rt := Task{task}
+		err = rt.Cancel(m.Client)
+		if err != nil {
+			return
+		}
+		err = m.DB.Save(task).Error
+		Log.Error(err, "")
+		db := m.DB.Model(&model.TaskReport{})
+		err = db.Delete("taskid", task.ID).Error
+		if err != nil {
+			err = liberr.Wrap(err)
+			break
 		}
 	}
-
-	return
-}
-
-// The task has been canceled.
-func (m *Manager) canceled(task *model.Task) {
-	rt := Task{task}
-	err := rt.Cancel(m.Client)
-	Log.Error(err, "")
-	if err != nil {
-		return
-	}
-	err = m.DB.Save(task).Error
-	Log.Error(err, "")
-	db := m.DB.Model(&model.TaskReport{})
-	err = db.Delete("taskid", task.ID).Error
-	Log.Error(err, "")
 	return
 }
 
@@ -471,17 +503,19 @@ func (r *Task) Run(db *gorm.DB, cluster Cluster) (err error) {
 	client := cluster.Client
 	mark := time.Now()
 	defer func() {
-		if err != nil && !errors.Is(err, &QuotaExceeded{}) {
-			r.Error("Error", err.Error())
-			r.Terminated = &mark
-			r.State = Failed
+		if err != nil {
+			if !errors.Is(err, &QuotaExceeded{}) {
+				r.Error("Error", "err.Error()")
+				r.Terminated = &mark
+				r.State = Failed
+			}
 		}
 	}()
 	err = r.selectAddon(db, cluster)
 	if err != nil {
 		return
 	}
-	priority, err := r.setPriority(cluster)
+	priority, err := r.selectPriority(cluster)
 	if err != nil {
 		return
 	}
@@ -1022,8 +1056,8 @@ func (r *Task) attach(file *model.File) {
 	r.Attached, _ = json.Marshal(attached)
 }
 
-// setPriority sets the pod priority class.
-func (r *Task) setPriority(cluster Cluster) (name string, err error) {
+// selectPriority sets the pod priority class.
+func (r *Task) selectPriority(cluster Cluster) (name string, err error) {
 	if r.Priority > 0 {
 		p, found := cluster.priority.values[r.Priority]
 		if !found {
