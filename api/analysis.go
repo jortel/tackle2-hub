@@ -114,6 +114,7 @@ func (h AnalysisHandler) Get(ctx *gin.Context) {
 // List godoc
 // @summary List analyses.
 // @description List analyses.
+// @description Resources do not include relations.
 // @tags analyses
 // @produce json
 // @success 200 {object} []api.Analysis
