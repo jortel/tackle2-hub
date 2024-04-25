@@ -65,6 +65,7 @@ func (h AnalysisHandler) AddRoutes(e *gin.Engine) {
 	routeGroup := e.Group("/")
 	routeGroup.Use(Required("analyses"))
 	routeGroup.GET(AnalysisRoot, h.Get)
+	routeGroup.GET(AnalysesRoot, h.List)
 	routeGroup.DELETE(AnalysisRoot, h.Delete)
 	routeGroup.GET(AnalysesDepsRoot, h.Deps)
 	routeGroup.GET(AnalysesIssuesRoot, h.Issues)
@@ -108,6 +109,65 @@ func (h AnalysisHandler) Get(ctx *gin.Context) {
 	}()
 	h.Status(ctx, http.StatusOK)
 	ctx.File(path)
+}
+
+// List godoc
+// @summary List analyses.
+// @description List analyses.
+// @tags analyses
+// @produce json
+// @success 200 {object} []api.Analysis
+// @router /analyses [get]
+func (h AnalysisHandler) List(ctx *gin.Context) {
+	resources := []Analysis{}
+	filter, err := qf.New(ctx,
+		[]qf.Assert{
+			{Field: "id", Kind: qf.LITERAL},
+		})
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	sort := Sort{}
+	err = sort.With(ctx, &model.Analysis{})
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	// Find
+	db := h.DB(ctx)
+	db = db.Model(&model.Analysis{})
+	db = filter.Where(db)
+	db = sort.Sorted(db)
+	var list []model.Analysis
+	var m model.Analysis
+	page := Page{}
+	page.With(ctx)
+	cursor := Cursor{}
+	cursor.With(db, page)
+	defer func() {
+		cursor.Close()
+	}()
+	for cursor.Next(&m) {
+		if cursor.Error != nil {
+			_ = ctx.Error(cursor.Error)
+			return
+		}
+		list = append(list, m)
+	}
+	err = h.WithCount(ctx, cursor.Count())
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	// Render
+	for i := range list {
+		r := Analysis{}
+		r.With(&list[i])
+		resources = append(resources, r)
+	}
+
+	h.Respond(ctx, http.StatusOK, resources)
 }
 
 // AppLatest godoc
