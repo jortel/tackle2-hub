@@ -278,6 +278,12 @@ func (h *BaseHandler) Attachment(ctx *gin.Context, name string) {
 		attachment)
 }
 
+// Watch adds a watch.
+func (h *BaseHandler) Watch(ctx *gin.Context) {
+	rtx := WithContext(ctx)
+	rtx.Watch.Add(ctx)
+}
+
 // REST resource.
 type Resource struct {
 	ID         uint      `json:"id,omitempty" yaml:"id,omitempty"`

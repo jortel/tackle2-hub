@@ -47,6 +47,8 @@ const (
 	AppAnalysisReportRoot = AppAnalysisRoot + "/report"
 	AppAnalysisDepsRoot   = AppAnalysisRoot + "/dependencies"
 	AppAnalysisIssuesRoot = AppAnalysisRoot + "/issues"
+	//
+	AnalysisWatchRoot = WatchRoot + "/" + AnalysesRoot
 )
 
 const (
@@ -86,6 +88,8 @@ func (h AnalysisHandler) AddRoutes(e *gin.Engine) {
 	routeGroup.GET(AppAnalysisReportRoot, h.AppLatestReport)
 	routeGroup.GET(AppAnalysisDepsRoot, h.AppDeps)
 	routeGroup.GET(AppAnalysisIssuesRoot, h.AppIssues)
+	// Watch
+	routeGroup.GET(WatchRoot, h.Watch)
 }
 
 // Get godoc

@@ -191,14 +191,20 @@ func main() {
 		metricsManager.Run(context.Background())
 	}
 	// Web
+	watch := &api.WatchHandler{}
 	router := gin.Default()
 	router.Use(api.Render())
+	router.Use(
+		func(ctx *gin.Context) {
+			watch.Publish(ctx)
+		})
 	router.Use(api.ErrorHandler())
 	router.Use(
 		func(ctx *gin.Context) {
 			rtx := api.WithContext(ctx)
 			rtx.DB = db
 			rtx.Client = client
+			rtx.Watch = watch
 		})
 	for _, h := range api.All() {
 		h.AddRoutes(router)

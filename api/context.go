@@ -16,8 +16,10 @@ type Context struct {
 	DB *gorm.DB
 	// User
 	User string
-	// Scope
+	// Scopes
 	Scopes []auth.Scope
+	// Watch handler.
+	Watch *WatchHandler
 	// k8s Client
 	Client client.Client
 	// Response
