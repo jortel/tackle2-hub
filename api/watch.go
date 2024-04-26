@@ -17,7 +17,7 @@ const (
 // Watch event pusher.
 type Watch struct {
 	conn    *websocket.Conn
-	subject string
+	kind    string
 	methods []string
 }
 
@@ -52,8 +52,14 @@ func (h *WatchHandler) Add(ctx *gin.Context) {
 		methods[i] = strings.TrimSpace(methods[i])
 		methods[i] = strings.ToUpper(methods[i])
 	}
-	subject := ctx.Param(Wildcard)
-	subject = strings.Split(subject, "/")[0]
+	part := strings.Split(
+		ctx.Request.URL.Path,
+		"/")
+	if len(part) < 2 {
+		_ = ctx.Error(&BadRequestError{})
+		return
+	}
+	kind := strings.ToLower(part[1])
 	upgrader := websocket.Upgrader{}
 	conn, err := upgrader.Upgrade(
 		ctx.Writer,
@@ -67,7 +73,7 @@ func (h *WatchHandler) Add(ctx *gin.Context) {
 		h.Watches,
 		&Watch{
 			conn:    conn,
-			subject: subject,
+			kind:    kind,
 			methods: methods,
 		})
 }
@@ -77,14 +83,26 @@ func (h *WatchHandler) Publish(ctx *gin.Context) {
 	if len(ctx.Errors) > 0 {
 		return
 	}
-	id, _ := strconv.Atoi(ctx.Param(ID))
+	if len(h.Watches) == 0 {
+		return
+	}
+	p := ctx.Param(ID)
+	id, _ := strconv.Atoi(p)
 	if id == 0 {
 		return
 	}
-	kind := strings.Split(
+	part := strings.Split(
 		ctx.Request.URL.Path,
-		"/")[0]
+		"/")
+	if len(part) == 0 {
+		_ = ctx.Error(&BadRequestError{})
+		return
+	}
+	kind := strings.ToLower(part[0])
 	for _, p := range h.Watches {
+		if p.kind != kind {
+			continue
+		}
 		err := p.send(&Event{
 			Method: ctx.Request.Method,
 			Kind:   kind,
