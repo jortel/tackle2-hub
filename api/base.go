@@ -279,9 +279,9 @@ func (h *BaseHandler) Attachment(ctx *gin.Context, name string) {
 }
 
 // Watch adds a watch.
-func (h *BaseHandler) Watch(ctx *gin.Context) {
+func (h *BaseHandler) Watch(ctx *gin.Context, kind string) {
 	rtx := WithContext(ctx)
-	rtx.Watch.Add(ctx)
+	rtx.Watch.Add(ctx, kind)
 }
 
 // REST resource.
@@ -290,6 +290,10 @@ type Resource struct {
 	CreateUser string    `json:"createUser" yaml:"createUser,omitempty"`
 	UpdateUser string    `json:"updateUser" yaml:"updateUser,omitempty"`
 	CreateTime time.Time `json:"createTime" yaml:"createTime,omitempty"`
+}
+
+func (r *Resource) Id() (id uint) {
+	return r.ID
 }
 
 // With updates the resource with the model.

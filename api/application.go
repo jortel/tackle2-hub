@@ -26,6 +26,7 @@ const (
 	AppStakeholdersRoot  = ApplicationRoot + "/stakeholders"
 	AppAssessmentsRoot   = ApplicationRoot + "/assessments"
 	AppAssessmentRoot    = AppAssessmentsRoot + "/:" + ID2
+	AppWatchRoot         = WatchRoot + "/" + ApplicationsRoot
 )
 
 // Params
@@ -90,6 +91,12 @@ func (h ApplicationHandler) AddRoutes(e *gin.Engine) {
 	routeGroup.Use(Required("applications.assessments"))
 	routeGroup.GET(AppAssessmentsRoot, h.AssessmentList)
 	routeGroup.POST(AppAssessmentsRoot, h.AssessmentCreate)
+	// Watch
+	routeGroup.GET(
+		AppWatchRoot,
+		func(ctx *gin.Context) {
+			h.Watch(ctx, "application")
+		})
 }
 
 // Get godoc

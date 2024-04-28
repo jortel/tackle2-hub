@@ -135,7 +135,14 @@ func (p *Predicate) valueOf(object interface{}) (result string) {
 		reflect.Int32,
 		reflect.Int64:
 		n := value.Int()
-		result = strconv.Itoa(int(n))
+		result = strconv.FormatInt(n, 10)
+	case reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64:
+		n := value.Uint()
+		result = strconv.FormatUint(n, 10)
 	case reflect.Bool:
 		result = strconv.FormatBool(value.Bool())
 	case reflect.Slice:

@@ -2,6 +2,7 @@ package binding
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -49,6 +50,13 @@ func (h *Application) Update(r *api.Application) (err error) {
 // Delete an Application.
 func (h *Application) Delete(id uint) (err error) {
 	err = h.client.Delete(Path(api.ApplicationRoot).Inject(Params{api.ID: id}))
+	return
+}
+
+// Watch Applications.
+func (h *Application) Watch(ctx context.Context, handler EventHandler, options *WatchOptions) (err error) {
+	path := api.AppWatchRoot
+	err = h.client.Watch(ctx, path, handler, options)
 	return
 }
 

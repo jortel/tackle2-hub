@@ -193,12 +193,13 @@ func main() {
 	// Web
 	watch := &api.WatchHandler{}
 	router := gin.Default()
+	router.Use(api.ErrorHandler())
 	router.Use(api.Render())
 	router.Use(
 		func(ctx *gin.Context) {
+			ctx.Next()
 			watch.Publish(ctx)
 		})
-	router.Use(api.ErrorHandler())
 	router.Use(
 		func(ctx *gin.Context) {
 			rtx := api.WithContext(ctx)

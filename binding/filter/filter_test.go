@@ -22,7 +22,7 @@ func TestFilter(t *testing.T) {
 	filter = Filter{}
 	filter.And("name").Eq("Elmer")
 	filter.And("age").Gt(10)
-	filter.And("height").Lt(44)
+	filter.And("height").Lt(uint(44))
 	filter.And("weight").LtEq(150)
 	filter.And("hair").NotEq("blond")
 	p = filter.String()

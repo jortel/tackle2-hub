@@ -17,10 +17,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin/binding"
+	"github.com/gorilla/websocket"
 	liberr "github.com/jortel/go-utils/error"
 	"github.com/konveyor/tackle2-hub/api"
 	qf "github.com/konveyor/tackle2-hub/binding/filter"
 	"github.com/konveyor/tackle2-hub/tar"
+	"golang.org/x/net/context"
 )
 
 const (
@@ -547,6 +549,121 @@ func (r *Client) FileSend(path, method string, fields []Field, object interface{
 	return
 }
 
+// Watch begins a watch.
+func (r *Client) Watch(ctx context.Context, path string, handler EventHandler, options *WatchOptions) (err error) {
+	err = r.buildTransport()
+	if err != nil {
+		return
+	}
+	url := r.socketURL(path, options)
+	for i := 0; ; i++ {
+		conn, response, nErr := r.socketGet(url)
+		if nErr != nil {
+			netErr := &net.OpError{}
+			if errors.As(nErr, &netErr) {
+				if i < r.Retry {
+					Log.Info(nErr.Error())
+					time.Sleep(RetryDelay)
+					continue
+				} else {
+					r.Error = liberr.Wrap(nErr)
+					err = r.Error
+					return
+				}
+			} else {
+				err = liberr.Wrap(nErr)
+				return
+			}
+		} else {
+			if response != nil {
+				status := response.StatusCode
+				Log.Info(
+					fmt.Sprintf(
+						"|%d|  %s %s",
+						response.StatusCode,
+						http.MethodGet,
+						path))
+				if status == http.StatusOK || status == http.StatusSwitchingProtocols {
+					go func() {
+						select {
+						case <-ctx.Done():
+							_ = conn.Close()
+						}
+					}()
+					go func() {
+						defer func() {
+							_ = conn.Close()
+						}()
+						for {
+							event := &api.Event{}
+							err = conn.ReadJSON(event)
+							if err != nil {
+								handler.Error(err)
+								break
+							}
+							handler.Event(event)
+						}
+					}()
+					break
+				}
+				if status == http.StatusUnauthorized {
+					refreshed, nErr := r.refreshToken(url)
+					if nErr != nil {
+						r.Error = liberr.Wrap(nErr)
+						err = r.Error
+						return
+					}
+					if !refreshed {
+						err = liberr.New(http.StatusText(status))
+						return
+					} else {
+						continue
+					}
+				}
+			}
+		}
+	}
+	return
+}
+
+// socketURL returns a websocket URL.
+func (r *Client) socketURL(path string, options *WatchOptions) (s string) {
+	u := r.join(path)
+	switch u.Scheme {
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	}
+	s = u.String()
+	if options != nil {
+		s = s + "?filter=" + options.Filter()
+	}
+	return
+}
+
+// socketGet performs a websocket GET request.
+func (r *Client) socketGet(url string) (conn *websocket.Conn, response *http.Response, err error) {
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 45 * time.Second,
+		Proxy:            http.ProxyFromEnvironment,
+	}
+	if ht, cast := r.transport.(*http.Transport); cast {
+		dialer.TLSClientConfig = ht.TLSClientConfig
+	}
+	conn, response, err = dialer.Dial(
+		url,
+		http.Header{
+			api.Authorization: []string{
+				"Bearer " + r.token.Token,
+			},
+		})
+	if err != nil {
+		err = liberr.Wrap(err)
+	}
+	return
+}
+
 // getDir downloads and expands a directory.
 func (r *Client) getDir(body io.Reader, output string) (err error) {
 	tarReader := tar.NewReader()
@@ -663,7 +780,7 @@ func (r *Client) send(rb func() (*http.Request, error)) (response *http.Response
 					request.Method,
 					request.URL.Path))
 			if response.StatusCode == http.StatusUnauthorized {
-				refreshed, nErr := r.refreshToken(request)
+				refreshed, nErr := r.refreshToken(request.URL.Path)
 				if nErr != nil {
 					r.Error = liberr.Wrap(nErr)
 					err = r.Error
@@ -778,9 +895,9 @@ func (f *Field) disposition() (d string) {
 }
 
 // refreshToken refreshes the token.
-func (r *Client) refreshToken(request *http.Request) (refreshed bool, err error) {
+func (r *Client) refreshToken(path string) (refreshed bool, err error) {
 	if r.token.Token == "" ||
-		strings.HasSuffix(request.URL.Path, api.AuthRefreshRoot) {
+		strings.HasSuffix(path, api.AuthRefreshRoot) {
 		return
 	}
 	login := &api.Login{Refresh: r.token.Refresh}
@@ -793,5 +910,28 @@ func (r *Client) refreshToken(request *http.Request) (refreshed bool, err error)
 	if errors.Is(err, &RestError{}) {
 		err = nil
 	}
+	return
+}
+
+// EventHandler handles watch events.
+type EventHandler interface {
+	Event(event *api.Event)
+	Error(err error)
+}
+
+type WatchOptions struct {
+	Methods []string
+	AfterId uint
+}
+
+func (r *WatchOptions) Filter() (f string) {
+	filter := Filter{}
+	if len(r.Methods) > 0 {
+		filter.And("method").Eq(r.Methods)
+	}
+	if r.AfterId > 0 {
+		filter.And("id").Gt(r.AfterId)
+	}
+	f = filter.String()
 	return
 }
