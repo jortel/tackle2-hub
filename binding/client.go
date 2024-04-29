@@ -1,6 +1,7 @@
 package binding
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -17,7 +18,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin/binding"
-	"github.com/gorilla/websocket"
 	liberr "github.com/jortel/go-utils/error"
 	"github.com/konveyor/tackle2-hub/api"
 	qf "github.com/konveyor/tackle2-hub/binding/filter"
@@ -551,115 +551,59 @@ func (r *Client) FileSend(path, method string, fields []Field, object interface{
 
 // Watch begins a watch.
 func (r *Client) Watch(ctx context.Context, path string, handler EventHandler, options *WatchOptions) (err error) {
-	err = r.buildTransport()
+	request := func() (request *http.Request, err error) {
+		request = &http.Request{
+			Header: http.Header{},
+			Method: http.MethodGet,
+			URL:    r.join(path),
+		}
+		if options != nil {
+			q := request.URL.Query()
+			q.Add("filter", options.Filter())
+			request.URL.RawQuery = q.Encode()
+		}
+		return
+	}
+	response, err := r.send(request)
 	if err != nil {
 		return
 	}
-	url := r.socketURL(path, options)
-	for i := 0; ; i++ {
-		conn, response, nErr := r.socketGet(url)
-		if nErr != nil {
-			netErr := &net.OpError{}
-			if errors.As(nErr, &netErr) {
-				if i < r.Retry {
-					Log.Info(nErr.Error())
-					time.Sleep(RetryDelay)
-					continue
-				} else {
-					r.Error = liberr.Wrap(nErr)
-					err = r.Error
+	delay := time.Millisecond + 100
+	status := response.StatusCode
+	switch status {
+	case http.StatusOK:
+		scanner := bufio.NewScanner(response.Body)
+		go func() {
+			defer func() {
+				_ = response.Body.Close()
+			}()
+			for {
+				select {
+				case <-ctx.Done():
 					return
-				}
-			} else {
-				err = liberr.Wrap(nErr)
-				return
-			}
-		} else {
-			if response != nil {
-				status := response.StatusCode
-				Log.Info(
-					fmt.Sprintf(
-						"|%d|  %s %s",
-						response.StatusCode,
-						http.MethodGet,
-						path))
-				if status == http.StatusOK || status == http.StatusSwitchingProtocols {
-					go func() {
-						select {
-						case <-ctx.Done():
-							_ = conn.Close()
-						}
-					}()
-					go func() {
-						defer func() {
-							_ = conn.Close()
-						}()
-						for {
-							event := &api.Event{}
-							err = conn.ReadJSON(event)
-							if err != nil {
-								handler.Error(err)
-								break
-							}
-							handler.Event(event)
-						}
-					}()
-					break
-				}
-				if status == http.StatusUnauthorized {
-					refreshed, nErr := r.refreshToken(url)
-					if nErr != nil {
-						r.Error = liberr.Wrap(nErr)
-						err = r.Error
+				default:
+					next := scanner.Scan()
+					if !next {
 						return
 					}
-					if !refreshed {
-						err = liberr.New(http.StatusText(status))
-						return
-					} else {
+					token := scanner.Bytes()
+					if len(token) == 0 {
+						time.Sleep(delay)
 						continue
 					}
+					event := &api.Event{}
+					err = json.Unmarshal(token, event)
+					if err == nil {
+						handler.Event(event)
+						continue
+					}
+					handler.Error(err)
+					return
 				}
 			}
-		}
-	}
-	return
-}
-
-// socketURL returns a websocket URL.
-func (r *Client) socketURL(path string, options *WatchOptions) (s string) {
-	u := r.join(path)
-	switch u.Scheme {
-	case "http":
-		u.Scheme = "ws"
-	case "https":
-		u.Scheme = "wss"
-	}
-	s = u.String()
-	if options != nil {
-		s = s + "?filter=" + options.Filter()
-	}
-	return
-}
-
-// socketGet performs a websocket GET request.
-func (r *Client) socketGet(url string) (conn *websocket.Conn, response *http.Response, err error) {
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 45 * time.Second,
-		Proxy:            http.ProxyFromEnvironment,
-	}
-	if ht, cast := r.transport.(*http.Transport); cast {
-		dialer.TLSClientConfig = ht.TLSClientConfig
-	}
-	conn, response, err = dialer.Dial(
-		url,
-		http.Header{
-			api.Authorization: []string{
-				"Bearer " + r.token.Token,
-			},
-		})
-	if err != nil {
-		err = liberr.Wrap(err)
+		}()
+	default:
+		err = r.restError(response)
 	}
 	return
 }

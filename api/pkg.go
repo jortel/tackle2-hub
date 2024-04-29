@@ -38,7 +38,8 @@ const (
 const (
 	Accept        = "Accept"
 	Authorization = "Authorization"
-	ContentLength = "Content-Length"
+	Connection    = "Connection"
+	Upgrade       = "Upgrade"
 	ContentType   = "Content-Type"
 	Directory     = "X-Directory"
 	Total         = "X-Total"

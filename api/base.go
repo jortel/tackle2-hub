@@ -292,10 +292,6 @@ type Resource struct {
 	CreateTime time.Time `json:"createTime" yaml:"createTime,omitempty"`
 }
 
-func (r *Resource) Id() (id uint) {
-	return r.ID
-}
-
 // With updates the resource with the model.
 func (r *Resource) With(m *model.Model) {
 	r.ID = m.ID

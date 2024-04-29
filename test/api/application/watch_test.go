@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -80,35 +81,19 @@ func TestApplicationWatch(t *testing.T) {
 		g.Expect(err).To(gomega.BeNil())
 	}
 
-	expected := []*api.Event{
-		{
-			Method: http.MethodPost,
-			Kind:   "application",
-			ID:     2,
-		},
-		{
-			Method: http.MethodPost,
-			Kind:   "application",
-			ID:     3,
-		},
-		{
-			Method: http.MethodPost,
-			Kind:   "application",
-			ID:     4,
-		},
-		{
-			Method: http.MethodPost,
-			Kind:   "application",
-			ID:     5,
-		},
-		{
-			Method: http.MethodPost,
-			Kind:   "application",
-			ID:     6,
-		},
-	}
+	time.Sleep(time.Second)
+
 	g.Expect(len(handler.errors)).To(gomega.Equal(0))
-	g.Expect(expected).To(gomega.Equal(handler.events))
+	expected := append(begin[1:], add...)
+	g.Expect(len(expected), len(handler.events))
+	for i := range append(begin[1:], add...) {
+		appA := expected[i]
+		event := handler.events[i]
+		b, _ := json.Marshal(event.Object)
+		appB := &api.Application{}
+		_ = json.Unmarshal(b, &appB)
+		g.Expect(appA.ID).To(gomega.Equal(appB.ID))
+	}
 
 	for _, r := range append(begin, add...) {
 		err := Application.Delete(r.ID)

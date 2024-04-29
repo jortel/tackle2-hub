@@ -1,8 +1,9 @@
 package api
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -25,14 +26,16 @@ type Watched interface {
 // Event watch event.
 type Event struct {
 	Method string `json:"method"`
-	Kind   string `json:"kind"`
-	ID     uint   `json:"ID"`
+	Object any    `json:"object"`
 }
 
 // Watch event pusher.
 type Watch struct {
 	id         int
-	conn       *websocket.Conn
+	socket     *websocket.Conn
+	writer     io.Writer
+	queue      chan *Event
+	done       chan int
 	kind       string
 	collection string
 	methods    []string
@@ -56,24 +59,59 @@ func (w *Watch) match(collection, method string) (matched bool) {
 	return
 }
 
-// send an event.
-func (w *Watch) send(event *Event) (err error) {
-	err = w.conn.WriteJSON(event)
-	if err == nil {
-		Log.Info(
-			"Watch event sent.",
-			"id",
-			w.id,
-			"event",
-			event)
-	}
+// forward events.
+func (w *Watch) send(event *Event) {
+	defer func() {
+		_ = recover()
+	}()
+	w.queue <- event
 	return
 }
 
-// end the session.
-func (w *Watch) end() {
-	_ = w.conn.Close()
-	Log.Info("Watch ended.", "id", w.id)
+//  begin forwarding events.
+func (w *Watch) begin() {
+	w.done = make(chan int, 100)
+	go func() {
+		drain := false
+		var err error
+		defer func() {
+			Log.Info("Watch ended.", "id", w.id)
+			w.done <- 0
+		}()
+		for {
+			select {
+			case event := <-w.queue:
+				if event == nil {
+					w.done <- 0
+					return
+				}
+				if drain {
+					continue
+				}
+				if err != nil {
+					drain = true
+					w.done <- 0
+					continue
+				}
+				writer := w.writer
+				if w.socket != nil {
+					writer, err = w.socket.NextWriter(websocket.TextMessage)
+					if err != nil {
+						continue
+					}
+				}
+				je := json.NewEncoder(writer)
+				err = je.Encode(event)
+				if err != nil {
+					continue
+				}
+				flusher, cast := writer.(http.Flusher)
+				if cast {
+					flusher.Flush()
+				}
+			}
+		}
+	}()
 }
 
 // WatchHandler handler.
@@ -84,26 +122,8 @@ type WatchHandler struct {
 	nextId  int
 }
 
-// Shutdown ends all watches.
-func (h *WatchHandler) Shutdown() {
-	for _, w := range h.Watches {
-		w.end()
-	}
-}
-
 // Add a watch.
 func (h *WatchHandler) Add(ctx *gin.Context, kind string) {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-	upgrader := websocket.Upgrader{}
-	conn, err := upgrader.Upgrade(
-		ctx.Writer,
-		ctx.Request,
-		nil)
-	if err != nil {
-		_ = ctx.Error(err)
-		return
-	}
 	collection, err := h.collection(ctx, 1)
 	if err != nil {
 		_ = ctx.Error(err)
@@ -116,78 +136,121 @@ func (h *WatchHandler) Add(ctx *gin.Context, kind string) {
 	}
 	w := &Watch{
 		id:         h.nextId,
-		conn:       conn,
+		queue:      make(chan *Event),
+		writer:     ctx.Writer,
 		collection: collection,
 		kind:       kind,
 	}
+	err = h.upgrade(ctx, w)
+	if err != nil {
+		return
+	}
+	hdr := ctx.Writer.Header()
+	hdr.Set("Connection", "Keep-Alive")
+	ctx.Status(http.StatusOK)
+	w.begin()
 	err = h.snapshot(db, w)
 	if err != nil {
 		_ = ctx.Error(err)
+		h.end(w)
 		return
 	}
-	h.nextId++
 	w.methods = methods
+	h.mutex.Lock()
+	h.nextId++
 	h.Watches = append(h.Watches, w)
+	h.mutex.Unlock()
 	Log.Info("Watch created.", "id", w.id)
+	_ = <-w.done
+	close(w.queue)
+	Log.Info("Watch queue closed.", "id", w.id)
+	h.mutex.Lock()
+	h.delete(w)
+	h.mutex.Unlock()
+	Log.Info("Watch deleted.", "id", w.id)
 }
 
 // Publish event.
 func (h *WatchHandler) Publish(ctx *gin.Context) {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
 	if len(ctx.Errors) > 0 {
 		return
 	}
 	if len(h.Watches) == 0 {
 		return
 	}
-	p := ctx.Param(ID)
-	id, _ := strconv.ParseUint(p, 10, 64)
-	if id == 0 {
-		rtx := WithContext(ctx)
-		r := rtx.Response.Body
-		if r != nil {
-			if watched, cast := r.(Watched); cast {
-				n := watched.Id()
-				id = uint64(n)
-			}
-		} else {
-			return
-		}
-	}
+	rtx := WithContext(ctx)
+	object := rtx.Response.Body
 	collection, err := h.collection(ctx, 0)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
 	method := ctx.Request.Method
-	for _, w := range h.Watches {
+	h.mutex.Lock()
+	watches := make([]*Watch, len(h.Watches))
+	copy(watches, h.Watches)
+	h.mutex.Unlock()
+	for _, w := range watches {
 		if !w.match(collection, method) {
-
+			continue
 		}
-		err := w.send(
+		w.send(
 			&Event{
 				Method: method,
-				Kind:   w.kind,
-				ID:     uint(id),
+				Object: object,
 			})
-		if err != nil {
-			h.End(w)
-		}
 	}
 }
 
-// End watch.
-func (h *WatchHandler) End(w *Watch) {
+// Shutdown ends all watches.
+func (h *WatchHandler) Shutdown() {
+	h.mutex.Lock()
+	watches := make([]*Watch, len(h.Watches))
+	copy(watches, h.Watches)
+	h.mutex.Unlock()
+	for _, w := range watches {
+		h.end(w)
+	}
+}
+
+// end the session.
+func (h *WatchHandler) end(w *Watch) {
+	Log.Info("Watch end requested.", "id", w.id)
+	defer func() {
+		_ = recover()
+	}()
+	w.done <- 0
+	return
+}
+
+// delete watch.
+func (h *WatchHandler) delete(w *Watch) {
 	var kept []*Watch
 	for i := range h.Watches {
 		if w != h.Watches[i] {
 			kept = append(kept, w)
-		} else {
-			w.end()
 		}
 	}
 	h.Watches = kept
+}
+
+// upgrade the connection when requested.
+func (h *WatchHandler) upgrade(ctx *gin.Context, watch *Watch) (err error) {
+	hdr := ctx.Request.Header.Get(Connection)
+	hdr = strings.ToUpper(hdr)
+	upgrade := hdr == "UPGRADE"
+	if !upgrade {
+		return
+	}
+	upgrader := websocket.Upgrader{}
+	socket, err := upgrader.Upgrade(
+		ctx.Writer,
+		ctx.Request,
+		nil)
+	if err == nil {
+		watch.socket = socket
+	}
+	return
 }
 
 // filter returns a list of
@@ -221,35 +284,21 @@ func (h *WatchHandler) snapshot(db *gorm.DB, w *Watch) (err error) {
 	}
 	var list []map[string]any
 	db = db.Table(w.kind)
-	db = db.Select("ID")
 	err = db.Find(&list).Error
 	if err != nil {
 		return
 	}
-	id := uint(0)
 	for _, r := range list {
-		idStr := r["ID"]
-		switch n := idStr.(type) {
-		case int:
-			id = uint(n)
-		case int32:
-			id = uint(n)
-		case int64:
-			id = uint(n)
-		}
-		sErr := w.send(
+		w.send(
 			&Event{
 				Method: http.MethodPost,
-				Kind:   w.kind,
-				ID:     id,
+				Object: r,
 			})
-		if sErr != nil {
-			h.End(w)
-		}
 	}
 	return
 }
 
+// collection returns the collection part of the path.
 func (h *WatchHandler) collection(ctx *gin.Context, p int) (kind string, err error) {
 	path := ctx.Request.URL.Path
 	path = strings.TrimPrefix(path, "/")
