@@ -93,21 +93,29 @@ func (w *Watch) begin() {
 					w.done <- 0
 					continue
 				}
-				writer := w.writer
+				var writer io.Writer
 				if w.socket != nil {
 					writer, err = w.socket.NextWriter(websocket.TextMessage)
 					if err != nil {
 						continue
 					}
+				} else {
+					writer = w.writer
 				}
 				je := json.NewEncoder(writer)
 				err = je.Encode(event)
 				if err != nil {
 					continue
 				}
+				closer, cast := writer.(io.WriteCloser)
+				if cast {
+					_ = closer.Close()
+					continue
+				}
 				flusher, cast := writer.(http.Flusher)
 				if cast {
 					flusher.Flush()
+					continue
 				}
 			}
 		}
@@ -136,7 +144,7 @@ func (h *WatchHandler) Add(ctx *gin.Context, kind string) {
 	}
 	w := &Watch{
 		id:         h.nextId,
-		queue:      make(chan *Event),
+		queue:      make(chan *Event, 10),
 		writer:     ctx.Writer,
 		collection: collection,
 		kind:       kind,
@@ -224,10 +232,10 @@ func (h *WatchHandler) end(w *Watch) {
 }
 
 // delete watch.
-func (h *WatchHandler) delete(w *Watch) {
+func (h *WatchHandler) delete(unwanted *Watch) {
 	var kept []*Watch
-	for i := range h.Watches {
-		if w != h.Watches[i] {
+	for _, w := range h.Watches {
+		if w.id != unwanted.id {
 			kept = append(kept, w)
 		}
 	}
