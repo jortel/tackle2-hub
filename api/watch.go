@@ -1,9 +1,14 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
+	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,11 +23,6 @@ const (
 	WatchRoot = "/watch"
 )
 
-// Watched resource.
-type Watched interface {
-	Id() (id uint)
-}
-
 // Event watch event.
 type Event struct {
 	Method string `json:"method"`
@@ -36,7 +36,7 @@ type Watch struct {
 	writer     io.Writer
 	queue      chan *Event
 	done       chan int
-	kind       string
+	primer     Primer
 	collection string
 	methods    []string
 }
@@ -122,6 +122,8 @@ func (w *Watch) begin() {
 	}()
 }
 
+type Primer = gin.HandlerFunc
+
 // WatchHandler handler.
 type WatchHandler struct {
 	BaseHandler
@@ -131,13 +133,13 @@ type WatchHandler struct {
 }
 
 // Add a watch.
-func (h *WatchHandler) Add(ctx *gin.Context, kind string) {
-	collection, err := h.collection(ctx, 1)
+func (h *WatchHandler) Add(ctx *gin.Context, primer Primer) {
+	collection, err := h.collection(ctx, "")
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
-	methods, db, err := h.filter(ctx)
+	methods, afterId, err := h.filter(ctx)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -147,7 +149,7 @@ func (h *WatchHandler) Add(ctx *gin.Context, kind string) {
 		queue:      make(chan *Event, 10),
 		writer:     ctx.Writer,
 		collection: collection,
-		kind:       kind,
+		primer:     primer,
 	}
 	err = h.upgrade(ctx, w)
 	if err != nil {
@@ -157,7 +159,8 @@ func (h *WatchHandler) Add(ctx *gin.Context, kind string) {
 	hdr.Set("Connection", "Keep-Alive")
 	ctx.Status(http.StatusOK)
 	w.begin()
-	err = h.snapshot(db, w)
+	rtx := WithContext(ctx)
+	err = h.snapshot(rtx.DB, afterId, w)
 	if err != nil {
 		_ = ctx.Error(err)
 		h.end(w)
@@ -178,6 +181,12 @@ func (h *WatchHandler) Add(ctx *gin.Context, kind string) {
 	Log.Info("Watch deleted.", "id", w.id)
 }
 
+func (h *WatchHandler) kind(object any) (kind string) {
+	t := reflect.TypeOf(object)
+	kind = t.Name()
+	return
+}
+
 // Publish event.
 func (h *WatchHandler) Publish(ctx *gin.Context) {
 	if len(ctx.Errors) > 0 {
@@ -188,12 +197,12 @@ func (h *WatchHandler) Publish(ctx *gin.Context) {
 	}
 	rtx := WithContext(ctx)
 	object := rtx.Response.Body
-	collection, err := h.collection(ctx, 0)
+	method := ctx.Request.Method
+	collection, err := h.collection(ctx, method)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
-	method := ctx.Request.Method
 	h.mutex.Lock()
 	watches := make([]*Watch, len(h.Watches))
 	copy(watches, h.Watches)
@@ -262,7 +271,7 @@ func (h *WatchHandler) upgrade(ctx *gin.Context, watch *Watch) (err error) {
 }
 
 // filter returns a list of
-func (h *WatchHandler) filter(ctx *gin.Context) (methods []string, db *gorm.DB, err error) {
+func (h *WatchHandler) filter(ctx *gin.Context) (methods []string, afterId uint, err error) {
 	filter, err := qf.New(ctx,
 		[]qf.Assert{
 			{Field: "id", Kind: qf.LITERAL},
@@ -280,44 +289,142 @@ func (h *WatchHandler) filter(ctx *gin.Context) (methods []string, db *gorm.DB, 
 				m.Value)
 		}
 	}
-	filter = filter.With("id")
-	db = filter.Where(h.DB(ctx))
+	id, found := filter.Field("id")
+	if found {
+		switch id.Operator.Value {
+		case string(qf.EQ),
+			string(qf.GT):
+			v := id.Value[0].Value
+			u, nErr := strconv.ParseUint(v, 10, 64)
+			if nErr == nil {
+				err = nErr
+				return
+			}
+			afterId = uint(u)
+		}
+	}
 	return
 }
 
 // snapshot sends inital set of events.
-func (h *WatchHandler) snapshot(db *gorm.DB, w *Watch) (err error) {
+func (h *WatchHandler) snapshot(db *gorm.DB, afterId uint, w *Watch) (err error) {
 	if !w.match(w.collection, http.MethodPost) {
 		return
 	}
-	var list []map[string]any
-	db = db.Table(w.kind)
-	err = db.Find(&list).Error
+	ctx := &gin.Context{}
+	ctx.Writer = &ResponseWriter{}
+	rtx := WithContext(ctx)
+	rtx.DB = db
+	w.primer(ctx)
+	err = ctx.Err()
 	if err != nil {
 		return
 	}
-	for _, r := range list {
-		w.send(
-			&Event{
-				Method: http.MethodPost,
-				Object: r,
-			})
+	body := rtx.Response.Body
+	if body == nil {
+		return
+	}
+	bt := reflect.TypeOf(body)
+	switch bt.Kind() {
+	case reflect.Slice:
+		bv := reflect.ValueOf(body)
+		for i := 0; i < bv.Len(); i++ {
+			r := bv.Index(i).Interface()
+			if r, cast := r.(interface{ Id() uint }); cast {
+				id := r.Id()
+				if id > afterId {
+					continue
+				}
+			}
+			w.send(
+				&Event{
+					Method: http.MethodPost,
+					Object: r,
+				})
+		}
+	default:
 	}
 	return
 }
 
 // collection returns the collection part of the path.
-func (h *WatchHandler) collection(ctx *gin.Context, p int) (kind string, err error) {
+func (h *WatchHandler) collection(ctx *gin.Context, method string) (kind string, err error) {
 	path := ctx.Request.URL.Path
 	path = strings.TrimPrefix(path, "/")
 	part := strings.Split(
 		path,
 		"/")
+	p := 0
+	switch method {
+	case http.MethodPost:
+		p = 0
+	case http.MethodPut:
+		p = 1
+	case http.MethodPatch:
+		p = 1
+	}
 	if len(part) < p {
 		_ = ctx.Error(&BadRequestError{})
 		return
 	}
+	slices.Reverse(part)
 	kind = part[p]
 	kind = strings.ToLower(kind)
+	return
+}
+
+type ResponseWriter struct {
+}
+
+func (w *ResponseWriter) Header() (h http.Header) {
+	h = make(http.Header)
+	return
+}
+
+func (w *ResponseWriter) Unwrap() (r http.ResponseWriter) {
+	return
+}
+
+func (w *ResponseWriter) reset(writer http.ResponseWriter) {
+}
+
+func (w *ResponseWriter) WriteHeader(code int) {
+}
+
+func (w *ResponseWriter) WriteHeaderNow() {
+}
+
+func (w *ResponseWriter) Write(data []byte) (n int, err error) {
+	return
+}
+
+func (w *ResponseWriter) WriteString(s string) (n int, err error) {
+	return
+}
+
+func (w *ResponseWriter) Status() (n int) {
+	return
+}
+
+func (w *ResponseWriter) Size() (n int) {
+	return
+}
+
+func (w *ResponseWriter) Written() (b bool) {
+	return
+}
+
+func (w *ResponseWriter) Hijack() (conn net.Conn, r *bufio.ReadWriter, err error) {
+	return
+}
+
+func (w *ResponseWriter) CloseNotify() (ch <-chan bool) {
+	return
+}
+
+func (w *ResponseWriter) Flush() {
+}
+
+func (w *ResponseWriter) Pusher() (pusher http.Pusher) {
 	return
 }

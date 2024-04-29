@@ -88,12 +88,6 @@ func (h AnalysisHandler) AddRoutes(e *gin.Engine) {
 	routeGroup.GET(AppAnalysisReportRoot, h.AppLatestReport)
 	routeGroup.GET(AppAnalysisDepsRoot, h.AppDeps)
 	routeGroup.GET(AppAnalysisIssuesRoot, h.AppIssues)
-	// Watch
-	routeGroup.GET(
-		AnalysesWatchRoot,
-		func(ctx *gin.Context) {
-			h.Watch(ctx, "analysis")
-		})
 }
 
 // Get godoc

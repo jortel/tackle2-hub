@@ -27,6 +27,7 @@ const (
 	AppAssessmentsRoot   = ApplicationRoot + "/assessments"
 	AppAssessmentRoot    = AppAssessmentsRoot + "/:" + ID2
 	AppWatchRoot         = WatchRoot + "/" + ApplicationsRoot
+	AppAnalysisWatchRoot = AppWatchRoot + "/:" + ID + "/analyses"
 )
 
 // Params
@@ -95,7 +96,14 @@ func (h ApplicationHandler) AddRoutes(e *gin.Engine) {
 	routeGroup.GET(
 		AppWatchRoot,
 		func(ctx *gin.Context) {
-			h.Watch(ctx, "application")
+			h.Watch(ctx, ApplicationHandler{}.List)
+
+		})
+	routeGroup.GET(
+		AppAnalysisWatchRoot,
+		func(ctx *gin.Context) {
+			h.Watch(ctx, AnalysisHandler{}.List)
+
 		})
 }
 
