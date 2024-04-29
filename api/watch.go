@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bufio"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"reflect"
 	"slices"
@@ -15,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	qf "github.com/konveyor/tackle2-hub/api/filter"
-	"gorm.io/gorm"
 )
 
 // Routes
@@ -159,8 +156,7 @@ func (h *WatchHandler) Add(ctx *gin.Context, primer Primer) {
 	hdr.Set("Connection", "Keep-Alive")
 	ctx.Status(http.StatusOK)
 	w.begin()
-	rtx := WithContext(ctx)
-	err = h.snapshot(rtx.DB, afterId, w)
+	err = h.snapshot(ctx, afterId, w)
 	if err != nil {
 		_ = ctx.Error(err)
 		h.end(w)
@@ -307,19 +303,18 @@ func (h *WatchHandler) filter(ctx *gin.Context) (methods []string, afterId uint,
 }
 
 // snapshot sends inital set of events.
-func (h *WatchHandler) snapshot(db *gorm.DB, afterId uint, w *Watch) (err error) {
+func (h *WatchHandler) snapshot(ctx *gin.Context, afterId uint, w *Watch) (err error) {
 	if !w.match(w.collection, http.MethodPost) {
 		return
 	}
-	ctx := &gin.Context{}
-	ctx.Writer = &ResponseWriter{}
 	rtx := WithContext(ctx)
-	rtx.DB = db
-	w.primer(ctx)
-	err = ctx.Err()
+	fake := rtx.Fake()
+	w.primer(fake)
+	err = fake.Err()
 	if err != nil {
 		return
 	}
+	rtx = WithContext(fake)
 	body := rtx.Response.Body
 	if body == nil {
 		return
@@ -370,61 +365,5 @@ func (h *WatchHandler) collection(ctx *gin.Context, method string) (kind string,
 	slices.Reverse(part)
 	kind = part[p]
 	kind = strings.ToLower(kind)
-	return
-}
-
-type ResponseWriter struct {
-}
-
-func (w *ResponseWriter) Header() (h http.Header) {
-	h = make(http.Header)
-	return
-}
-
-func (w *ResponseWriter) Unwrap() (r http.ResponseWriter) {
-	return
-}
-
-func (w *ResponseWriter) reset(writer http.ResponseWriter) {
-}
-
-func (w *ResponseWriter) WriteHeader(code int) {
-}
-
-func (w *ResponseWriter) WriteHeaderNow() {
-}
-
-func (w *ResponseWriter) Write(data []byte) (n int, err error) {
-	return
-}
-
-func (w *ResponseWriter) WriteString(s string) (n int, err error) {
-	return
-}
-
-func (w *ResponseWriter) Status() (n int) {
-	return
-}
-
-func (w *ResponseWriter) Size() (n int) {
-	return
-}
-
-func (w *ResponseWriter) Written() (b bool) {
-	return
-}
-
-func (w *ResponseWriter) Hijack() (conn net.Conn, r *bufio.ReadWriter, err error) {
-	return
-}
-
-func (w *ResponseWriter) CloseNotify() (ch <-chan bool) {
-	return
-}
-
-func (w *ResponseWriter) Flush() {
-}
-
-func (w *ResponseWriter) Pusher() (pusher http.Pusher) {
 	return
 }

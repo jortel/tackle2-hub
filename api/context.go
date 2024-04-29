@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +48,72 @@ func (r *Context) Respond(status int, body interface{}) {
 		Status: status,
 		Body:   body,
 	}
+}
+
+// Fake returns a fake context.
+func (r *Context) Fake() (fake *gin.Context) {
+	fake = &gin.Context{}
+	fake.Writer = &ResponseWriter{}
+	rtx := WithContext(fake)
+	rtx.DB = r.DB
+	rtx.Client = r.Client
+	return
+}
+
+type ResponseWriter struct {
+}
+
+func (w *ResponseWriter) Header() (h http.Header) {
+	h = make(http.Header)
+	return
+}
+
+func (w *ResponseWriter) Unwrap() (r http.ResponseWriter) {
+	return
+}
+
+func (w *ResponseWriter) reset(writer http.ResponseWriter) {
+}
+
+func (w *ResponseWriter) WriteHeader(code int) {
+}
+
+func (w *ResponseWriter) WriteHeaderNow() {
+}
+
+func (w *ResponseWriter) Write(data []byte) (n int, err error) {
+	return
+}
+
+func (w *ResponseWriter) WriteString(s string) (n int, err error) {
+	return
+}
+
+func (w *ResponseWriter) Status() (n int) {
+	return
+}
+
+func (w *ResponseWriter) Size() (n int) {
+	return
+}
+
+func (w *ResponseWriter) Written() (b bool) {
+	return
+}
+
+func (w *ResponseWriter) Hijack() (conn net.Conn, r *bufio.ReadWriter, err error) {
+	return
+}
+
+func (w *ResponseWriter) CloseNotify() (ch <-chan bool) {
+	return
+}
+
+func (w *ResponseWriter) Flush() {
+}
+
+func (w *ResponseWriter) Pusher() (pusher http.Pusher) {
+	return
 }
 
 // WithContext is a rich context.

@@ -47,8 +47,6 @@ const (
 	AppAnalysisReportRoot = AppAnalysisRoot + "/report"
 	AppAnalysisDepsRoot   = AppAnalysisRoot + "/dependencies"
 	AppAnalysisIssuesRoot = AppAnalysisRoot + "/issues"
-	//
-	AnalysesWatchRoot = WatchRoot + "/" + AnalysesRoot
 )
 
 const (
@@ -119,10 +117,10 @@ func (h AnalysisHandler) Get(ctx *gin.Context) {
 // @description Resources do not include relations.
 // @tags analyses
 // @produce json
-// @success 200 {object} []api.Analysis
+// @success 200 {object} []api.Ref
 // @router /analyses [get]
 func (h AnalysisHandler) List(ctx *gin.Context) {
-	resources := []Analysis{}
+	resources := []Ref{}
 	filter, err := qf.New(ctx,
 		[]qf.Assert{
 			{Field: "id", Kind: qf.LITERAL},
@@ -142,6 +140,7 @@ func (h AnalysisHandler) List(ctx *gin.Context) {
 	db = db.Model(&model.Analysis{})
 	db = filter.Where(db)
 	db = sort.Sorted(db)
+	db = db.Select(ID)
 	var list []model.Analysis
 	var m model.Analysis
 	page := Page{}
@@ -158,15 +157,11 @@ func (h AnalysisHandler) List(ctx *gin.Context) {
 		}
 		list = append(list, m)
 	}
-	err = h.WithCount(ctx, cursor.Count())
-	if err != nil {
-		_ = ctx.Error(err)
-		return
-	}
 	// Render
 	for i := range list {
-		r := Analysis{}
-		r.With(&list[i])
+		m := &list[i]
+		r := Ref{}
+		r.With(m.ID, "")
 		resources = append(resources, r)
 	}
 
@@ -232,10 +227,10 @@ func (h AnalysisHandler) AppLatestReport(ctx *gin.Context) {
 // @description Resources do not include relations.
 // @tags analyses
 // @produce json
-// @success 200 {object} []api.Analysis
+// @success 200 {object} []api.Ref
 // @router /analyses [get]
 func (h AnalysisHandler) AppList(ctx *gin.Context) {
-	resources := []Analysis{}
+	resources := []Ref{}
 	// Sort
 	sort := Sort{}
 	err := sort.With(ctx, &model.Issue{})
@@ -249,6 +244,7 @@ func (h AnalysisHandler) AppList(ctx *gin.Context) {
 	db = db.Model(&model.Analysis{})
 	db = db.Where("ApplicationID = ?", id)
 	db = sort.Sorted(db)
+	db = db.Select(ID)
 	var list []model.Analysis
 	var m model.Analysis
 	page := Page{}
@@ -265,15 +261,11 @@ func (h AnalysisHandler) AppList(ctx *gin.Context) {
 		}
 		list = append(list, m)
 	}
-	err = h.WithCount(ctx, cursor.Count())
-	if err != nil {
-		_ = ctx.Error(err)
-		return
-	}
 	// Render
 	for i := range list {
-		r := Analysis{}
-		r.With(&list[i])
+		m := &list[i]
+		r := Ref{}
+		r.With(m.ID, "")
 		resources = append(resources, r)
 	}
 
