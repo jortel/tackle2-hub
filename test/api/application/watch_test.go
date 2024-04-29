@@ -81,12 +81,21 @@ func TestApplicationWatch(t *testing.T) {
 		g.Expect(err).To(gomega.BeNil())
 	}
 
-	time.Sleep(time.Second)
+	created := append(begin, add...)
+	expected := append(begin[1:], add...)
+
+	for i := 0; i < 20; i++ {
+		if len(handler.events) < len(expected) {
+			time.Sleep(time.Millisecond * 100)
+		} else {
+			break
+		}
+	}
 
 	g.Expect(len(handler.errors)).To(gomega.Equal(0))
-	expected := append(begin[1:], add...)
 	g.Expect(len(expected), len(handler.events))
-	for i := range append(begin[1:], add...) {
+
+	for i := range handler.events {
 		appA := expected[i]
 		event := handler.events[i]
 		b, _ := json.Marshal(event.Object)
@@ -95,7 +104,7 @@ func TestApplicationWatch(t *testing.T) {
 		g.Expect(appA.ID).To(gomega.Equal(appB.ID))
 	}
 
-	for _, r := range append(begin, add...) {
+	for _, r := range created {
 		err := Application.Delete(r.ID)
 		g.Expect(err).To(gomega.BeNil())
 	}
