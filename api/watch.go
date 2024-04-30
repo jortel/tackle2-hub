@@ -9,9 +9,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	liberr "github.com/jortel/go-utils/error"
 	qf "github.com/konveyor/tackle2-hub/api/filter"
 )
 
@@ -24,6 +26,7 @@ const (
 type Event struct {
 	Method string `json:"method"`
 	Object any    `json:"object"`
+	reader io.Reader
 }
 
 // Watch event pusher.
@@ -31,7 +34,7 @@ type Watch struct {
 	id         int
 	socket     *websocket.Conn
 	writer     io.Writer
-	queue      chan *Event
+	queue      chan io.Reader
 	done       chan int
 	primer     Primer
 	collection string
@@ -57,11 +60,14 @@ func (w *Watch) match(collection, method string) (matched bool) {
 }
 
 // forward events.
-func (w *Watch) send(event *Event) {
+func (w *Watch) send(reader io.Reader) {
 	defer func() {
-		_ = recover()
+		r := recover()
+		if err, cast := r.(error); cast {
+			Log.Error(err, "Watch send failed.", "id", w.id)
+		}
 	}()
-	w.queue <- event
+	w.queue <- reader
 	return
 }
 
@@ -75,48 +81,65 @@ func (w *Watch) begin() {
 			Log.Info("Watch ended.", "id", w.id)
 			w.done <- 0
 		}()
-		for {
-			select {
-			case event := <-w.queue:
-				if event == nil {
-					w.done <- 0
+		next := func(reader io.Reader) (end bool) {
+			defer w.close(reader)
+			if reader == nil {
+				end = true
+				return
+			}
+			if drain {
+				_, _ = io.ReadAll(reader)
+				return
+			}
+			if err != nil {
+				drain = true
+				return
+			}
+			var writer io.Writer
+			if w.socket != nil {
+				writer, err = w.socket.NextWriter(websocket.TextMessage)
+				if err != nil {
+					end = true
 					return
 				}
-				if drain {
-					continue
-				}
-				if err != nil {
-					drain = true
-					w.done <- 0
-					continue
-				}
-				var writer io.Writer
-				if w.socket != nil {
-					writer, err = w.socket.NextWriter(websocket.TextMessage)
-					if err != nil {
-						continue
-					}
-				} else {
-					writer = w.writer
-				}
-				je := json.NewEncoder(writer)
-				err = je.Encode(event)
-				if err != nil {
-					continue
-				}
-				closer, cast := writer.(io.WriteCloser)
-				if cast {
-					_ = closer.Close()
-					continue
-				}
-				flusher, cast := writer.(http.Flusher)
-				if cast {
-					flusher.Flush()
-					continue
-				}
+			} else {
+				writer = w.writer
+			}
+			_, err = io.Copy(writer, reader)
+			if err != nil {
+				end = true
+				return
+			}
+			closer, cast := writer.(io.WriteCloser)
+			if cast {
+				_ = closer.Close()
+				return
+			}
+			flusher, cast := writer.(http.Flusher)
+			if cast {
+				flusher.Flush()
+				return
+			}
+			return
+		}
+		for {
+			reader := <-w.queue
+			end := next(reader)
+			if end {
+				w.done <- 0
+				break
 			}
 		}
 	}()
+}
+
+func (w *Watch) close(r io.Reader) {
+	defer func() {
+		_ = recover()
+	}()
+	if r, cast := r.(io.Closer); cast {
+		_ = r.Close()
+	}
 }
 
 type Primer = gin.HandlerFunc
@@ -143,7 +166,7 @@ func (h *WatchHandler) Add(ctx *gin.Context, primer Primer) {
 	}
 	w := &Watch{
 		id:         h.nextId,
-		queue:      make(chan *Event, 10),
+		queue:      make(chan io.Reader, 1000),
 		writer:     ctx.Writer,
 		collection: collection,
 		primer:     primer,
@@ -203,16 +226,34 @@ func (h *WatchHandler) Publish(ctx *gin.Context) {
 	watches := make([]*Watch, len(h.Watches))
 	copy(watches, h.Watches)
 	h.mutex.Unlock()
+	pr := h.pipedEncoder(method, object)
 	for _, w := range watches {
-		if !w.match(collection, method) {
-			continue
+		if w.match(collection, method) {
+			//reader := io.TeeReader(pr, pw)
+			w.send(pr)
 		}
-		w.send(
+	}
+}
+
+// pipedEncoder returns a pipe (reader,writer) fed by
+// a go-routine which writes a json encoded Event.
+func (h *WatchHandler) pipedEncoder(method string, object any) (r io.Reader) {
+	pr, pw := Pipe()
+	go func() {
+		encoder := json.NewEncoder(pw)
+		err := encoder.Encode(
 			&Event{
 				Method: method,
 				Object: object,
 			})
-	}
+		if err != nil {
+			_ = pw.CloseWithError(err)
+		} else {
+			_ = pw.Close()
+		}
+	}()
+	r = pr
+	return
 }
 
 // Shutdown ends all watches.
@@ -309,6 +350,9 @@ func (h *WatchHandler) snapshot(ctx *gin.Context, afterId uint, w *Watch) (err e
 	}
 	rtx := WithContext(ctx)
 	fake := rtx.Fake()
+	if afterId > 0 {
+		rtx.DB = rtx.DB.Where("id>?", afterId)
+	}
 	w.primer(fake)
 	err = fake.Err()
 	if err != nil {
@@ -319,23 +363,15 @@ func (h *WatchHandler) snapshot(ctx *gin.Context, afterId uint, w *Watch) (err e
 	if body == nil {
 		return
 	}
+	method := http.MethodPost
 	bt := reflect.TypeOf(body)
 	switch bt.Kind() {
 	case reflect.Slice:
 		bv := reflect.ValueOf(body)
 		for i := 0; i < bv.Len(); i++ {
-			r := bv.Index(i).Interface()
-			if r, cast := r.(interface{ Id() uint }); cast {
-				id := r.Id()
-				if id > afterId {
-					continue
-				}
-			}
-			w.send(
-				&Event{
-					Method: http.MethodPost,
-					Object: r,
-				})
+			object := bv.Index(i).Interface()
+			pr := h.pipedEncoder(method, object)
+			w.send(pr)
 		}
 	default:
 	}
@@ -366,4 +402,109 @@ func (h *WatchHandler) collection(ctx *gin.Context, method string) (kind string,
 	kind = part[p]
 	kind = strings.ToLower(kind)
 	return
+}
+
+// PipeReader a channel-based io.Reader.
+type PipeReader struct {
+	input  chan Packet
+	closed chan int
+}
+
+// Read see: io.Reader.
+func (r *PipeReader) Read(b []byte) (n int, err error) {
+	for n = 0; n < len(b); n++ {
+		p := <-r.input
+		if p.err != nil {
+			err = p.err
+			return
+		}
+		if p.byte == 0 {
+			if n == 0 {
+				err = io.EOF
+			}
+			return
+		}
+		b[n] = p.byte
+	}
+	return
+}
+
+// Close the reader.
+// Signals the writer.
+func (r *PipeReader) Close() (err error) {
+	defer func() {
+		r := recover()
+		err, _ = r.(error)
+	}()
+	close(r.closed)
+	return
+}
+
+// PipeWriter is a channel-based io.Writer.
+type PipeWriter struct {
+	output chan Packet
+	closed chan int
+}
+
+// Write see: io.Writer.
+func (w *PipeWriter) Write(b []byte) (n int, err error) {
+	defer func() {
+		r := recover()
+		err, _ = r.(error)
+	}()
+	for n = 0; n < len(b); n++ {
+		p := Packet{byte: b[n]}
+		select {
+		case <-w.closed:
+			err = liberr.New("reader closed.")
+			return
+		case w.output <- p:
+		case <-time.After(time.Second):
+			n--
+		}
+	}
+	return
+}
+
+// Close the reader.
+func (w *PipeWriter) Close() (err error) {
+	defer func() {
+		r := recover()
+		err, _ = r.(error)
+	}()
+	close(w.output)
+	return
+}
+
+// CloseWithError close the writer.
+// report send error to the reader.
+func (w *PipeWriter) CloseWithError(errIn error) (err error) {
+	defer func() {
+		r := recover()
+		err, _ = r.(error)
+	}()
+	w.output <- Packet{err: errIn}
+	err = w.Close()
+	return
+}
+
+// Pipe returns a channel-based pipe.
+func Pipe() (r *PipeReader, w *PipeWriter) {
+	queue := make(chan Packet, 4096)
+	done := make(chan int)
+	r = &PipeReader{
+		input:  queue,
+		closed: done,
+	}
+	w = &PipeWriter{
+		output: queue,
+		closed: done,
+	}
+	return
+}
+
+// Packet pipe queue payload.
+type Packet struct {
+	byte
+	err error
 }
