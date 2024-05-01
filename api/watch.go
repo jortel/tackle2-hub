@@ -229,8 +229,15 @@ func (h *WatchHandler) Publish(ctx *gin.Context) {
 	h.mutex.Unlock()
 	for _, w := range watches {
 		if w.match(collection, method) {
-			pr := h.pipedEncoder(method, object)
-			if w.match(collection, method) {
+			builder := w.builder
+			if builder != nil {
+				id := h.getId(object)
+				if id > 0 {
+					pr := h.pipedBuilder(method, id, builder)
+					w.send(pr)
+				}
+			} else {
+				pr := h.pipedEncoder(method, object)
 				w.send(pr)
 			}
 		}
@@ -250,7 +257,7 @@ func (h *WatchHandler) object(ctx *gin.Context) (object any) {
 	if object == nil {
 		id := h.pk(ctx)
 		if id > 0 {
-			object = Ref{ID: id}
+			object = &Ref{ID: id}
 		}
 	}
 	return
@@ -451,6 +458,16 @@ func (h *WatchHandler) collection(ctx *gin.Context, method string) (kind string,
 }
 
 func (h *WatchHandler) getId(object any) (id uint) {
+	v := reflect.ValueOf(object)
+	switch v.Kind() {
+	case reflect.Pointer:
+		// already
+	case reflect.Struct:
+		val := reflect.ValueOf(object)
+		vp := reflect.New(val.Type())
+		vp.Elem().Set(val)
+		object = vp.Interface()
+	}
 	r, cast := object.(interface{ Id() uint })
 	if cast {
 		id = r.Id()

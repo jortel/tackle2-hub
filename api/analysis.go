@@ -450,9 +450,11 @@ func (h AnalysisHandler) AppCreate(ctx *gin.Context) {
 		return
 	}
 
-	r.With(analysis)
+	ref := Ref{
+		ID: analysis.ID,
+	}
 
-	h.Respond(ctx, http.StatusCreated, r)
+	h.Respond(ctx, http.StatusCreated, ref)
 }
 
 // Delete godoc
