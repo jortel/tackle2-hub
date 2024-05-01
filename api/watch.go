@@ -200,12 +200,6 @@ func (h *WatchHandler) Add(ctx *gin.Context, primer Primer) {
 	Log.Info("Watch deleted.", "id", w.id)
 }
 
-func (h *WatchHandler) kind(object any) (kind string) {
-	t := reflect.TypeOf(object)
-	kind = t.Name()
-	return
-}
-
 // Publish event.
 func (h *WatchHandler) Publish(ctx *gin.Context) {
 	if len(ctx.Errors) > 0 {
@@ -220,15 +214,9 @@ func (h *WatchHandler) Publish(ctx *gin.Context) {
 		_ = ctx.Error(err)
 		return
 	}
-	rtx := WithContext(ctx)
-	object := rtx.Response.Body
+	object := h.object(ctx)
 	if object == nil {
-		id := h.pk(ctx)
-		if id > 0 {
-			object = Ref{ID: id}
-		} else {
-			return
-		}
+		return
 	}
 	h.mutex.Lock()
 	watches := make([]*Watch, len(h.Watches))
@@ -250,6 +238,25 @@ func (h *WatchHandler) Publish(ctx *gin.Context) {
 			w.send(pr[i])
 		}
 	}
+}
+
+func (h *WatchHandler) kind(object any) (kind string) {
+	t := reflect.TypeOf(object)
+	kind = t.Name()
+	return
+}
+
+// object returns the object (response body).
+func (h *WatchHandler) object(ctx *gin.Context) (object any) {
+	rtx := WithContext(ctx)
+	object = rtx.Response.Body
+	if object == nil {
+		id := h.pk(ctx)
+		if id > 0 {
+			object = Ref{ID: id}
+		}
+	}
+	return
 }
 
 // pipedEncoder returns list of io.Writer.
