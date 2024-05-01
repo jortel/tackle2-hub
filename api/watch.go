@@ -123,9 +123,8 @@ func (w *Watch) run() {
 			}
 			return
 		}
-		for {
-			reader := <-w.queue
-			end := push(reader)
+		for r := range w.queue {
+			end := push(r)
 			if end {
 				w.done <- 0
 				break
@@ -228,20 +227,12 @@ func (h *WatchHandler) Publish(ctx *gin.Context) {
 	watches := make([]*Watch, len(h.Watches))
 	copy(watches, h.Watches)
 	h.mutex.Unlock()
-	matched := 0
 	for _, w := range watches {
 		if w.match(collection, method) {
-			matched++
-		}
-	}
-	if matched == 0 {
-		return
-	}
-	pr := h.pipedEncoder(method, object, matched)
-	for i := range watches {
-		w := watches[i]
-		if w.match(collection, method) {
-			w.send(pr[i])
+			pr := h.pipedEncoder(method, object)
+			if w.match(collection, method) {
+				w.send(pr)
+			}
 		}
 	}
 }
@@ -265,46 +256,38 @@ func (h *WatchHandler) object(ctx *gin.Context) (object any) {
 	return
 }
 
-// pipedEncoder json encodes the object and returns list of io.Reader.
-func (h *WatchHandler) pipedEncoder(method string, object any, n int) (r []io.Reader) {
-	mux := &PipeMux{}
-	for i := 0; i < n; i++ {
-		pr, pw := Pipe()
-		mux.Add(pr, pw)
-	}
+// pipedEncoder json encodes the object and returns an io.Reader.
+func (h *WatchHandler) pipedEncoder(method string, object any) (r io.Reader) {
+	pr, pw := Pipe()
 	go func() {
-		encoder := json.NewEncoder(mux)
+		encoder := json.NewEncoder(pw)
 		err := encoder.Encode(
 			&Event{
 				Method: method,
 				Object: object,
 			})
 		if err != nil {
-			_ = mux.CloseWithError(err)
+			_ = pw.CloseWithError(err)
 		} else {
-			_ = mux.Close()
+			_ = pw.Close()
 		}
 	}()
-	r = mux.Readers()
+	r = pr
 	return
 }
 
 // pipedBuilder writes an event returns list of io.Reader.
-func (h *WatchHandler) pipedBuilder(method string, id uint, builder EventBuilder, n int) (r []io.Reader) {
-	mux := &PipeMux{}
-	for i := 0; i < n; i++ {
-		pr, pw := Pipe()
-		mux.Add(pr, pw)
-	}
+func (h *WatchHandler) pipedBuilder(method string, id uint, builder EventBuilder) (r io.Reader) {
+	pr, pw := Pipe()
 	go func() {
-		err := builder(id, method, mux)
+		err := builder(id, method, pw)
 		if err != nil {
-			_ = mux.CloseWithError(err)
+			_ = pw.CloseWithError(err)
 		} else {
-			_ = mux.Close()
+			_ = pw.Close()
 		}
 	}()
-	r = mux.Readers()
+	r = pr
 	return
 }
 
@@ -428,12 +411,12 @@ func (h *WatchHandler) snapshot(ctx *gin.Context, afterId uint, w *Watch) (err e
 			if builder != nil {
 				id := h.getId(object)
 				if id > 0 {
-					pr := h.pipedBuilder(method, id, builder, 1)
-					w.send(pr[0])
+					pr := h.pipedBuilder(method, id, builder)
+					w.send(pr)
 				}
 			} else {
-				pr := h.pipedEncoder(method, object, 1)
-				w.send(pr[0])
+				pr := h.pipedEncoder(method, object)
+				w.send(pr)
 			}
 		}
 	default:
@@ -477,14 +460,15 @@ func (h *WatchHandler) getId(object any) (id uint) {
 
 // PipeReader a channel-based io.Reader.
 type PipeReader struct {
-	input  chan Packet
+	input  <-chan Packet
 	closed chan int
 }
 
 // Read see: io.Reader.
 func (r *PipeReader) Read(b []byte) (n int, err error) {
 	for n = 0; n < len(b); n++ {
-		p := <-r.input
+		var p Packet
+		p = <-r.input
 		if p.err != nil {
 			err = p.err
 			return
@@ -515,8 +499,9 @@ func (r *PipeReader) Close() (err error) {
 
 // PipeWriter is a channel-based io.Writer.
 type PipeWriter struct {
-	output chan Packet
+	output chan<- Packet
 	closed chan int
+	n      int
 }
 
 // Write see: io.Writer.
@@ -533,6 +518,7 @@ func (w *PipeWriter) Write(b []byte) (n int, err error) {
 	blocked := 0
 	day := 86400
 	for n = 0; n < len(b); n++ {
+		w.n++
 		p := Packet{byte: b[n]}
 		select {
 		case <-w.closed:
@@ -541,7 +527,6 @@ func (w *PipeWriter) Write(b []byte) (n int, err error) {
 		case w.output <- p:
 			blocked = 0
 		case <-time.After(time.Second):
-			Log.Info("BLOCKED")
 			blocked++
 			if blocked > day {
 				err = liberr.New("peer not reading.")
@@ -596,81 +581,4 @@ func Pipe() (r *PipeReader, w *PipeWriter) {
 type Packet struct {
 	byte
 	err error
-}
-
-// PipeMux provides a pipe multiplexer.
-type PipeMux struct {
-	pipes []MPipe
-}
-
-// Readers returns the readers.
-func (m *PipeMux) Readers() (r []io.Reader) {
-	for _, p := range m.pipes {
-		r = append(r, p.reader)
-	}
-	return
-}
-
-// Add a pipe.
-func (m *PipeMux) Add(r *PipeReader, w *PipeWriter) {
-	m.pipes = append(
-		m.pipes,
-		MPipe{
-			reader: r,
-			writer: w,
-		})
-}
-
-// Write see: io.Writer.
-func (m *PipeMux) Write(b []byte) (n int, err error) {
-	defer func() {
-		r := recover()
-		err, _ = r.(error)
-	}()
-	for _, p := range m.pipes {
-		if p.err != nil {
-			continue
-		}
-		for pending := len(b); pending > 0; {
-			n, p.err = p.writer.Write(b)
-			if p.err != nil {
-				break
-			}
-			pending -= n
-		}
-	}
-	n = len(b)
-	return
-}
-
-// Close see: io.Closer.
-func (m *PipeMux) Close() (err error) {
-	defer func() {
-		r := recover()
-		err, _ = r.(error)
-	}()
-	for _, p := range m.pipes {
-		p.err = p.writer.Close()
-	}
-	return
-}
-
-// CloseWithError see: io.Closer.
-// Error sent to the reader.
-func (m *PipeMux) CloseWithError(errIn error) (err error) {
-	defer func() {
-		r := recover()
-		err, _ = r.(error)
-	}()
-	for _, p := range m.pipes {
-		p.err = p.writer.CloseWithError(errIn)
-	}
-	return
-}
-
-// MPipe represents a multiplexed pipe.
-type MPipe struct {
-	err    error
-	reader *PipeReader
-	writer *PipeWriter
 }

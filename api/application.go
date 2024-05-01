@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -101,8 +102,16 @@ func (h ApplicationHandler) AddRoutes(e *gin.Engine) {
 	routeGroup.GET(
 		AppAnalysisWatchRoot,
 		func(ctx *gin.Context) {
-			builder := &AnalysisWriter{ctx: ctx}
-			h.Watch(ctx, AnalysisHandler{}.List, builder.Event)
+			rtx := WithContext(ctx)
+			fake := rtx.Fake()
+			builder := func(id uint, m string, w io.Writer) (err error) {
+				b := &AnalysisWriter{
+					ctx: fake,
+				}
+				err = b.Event(id, m, w)
+				return
+			}
+			h.Watch(ctx, AnalysisHandler{}.List, builder)
 		})
 }
 

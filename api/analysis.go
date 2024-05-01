@@ -2257,6 +2257,7 @@ func (r *AnalysisWriter) Event(id uint, method string, output io.Writer) (err er
 	}
 	r.end()
 	en.end()
+	_, err = output.Write([]byte("\n"))
 	return
 }
 
