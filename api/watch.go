@@ -36,9 +36,10 @@ type Watch struct {
 	writer     io.Writer
 	queue      chan io.Reader
 	done       chan int
-	primer     Primer
 	collection string
 	methods    []string
+	primer     Primer
+	builder    EventBuilder
 }
 
 // match selectors.
@@ -71,7 +72,7 @@ func (w *Watch) send(reader io.Reader) {
 	return
 }
 
-//  begin forwarding events.
+// begin forwarding events.
 func (w *Watch) run() {
 	w.done = make(chan int, 100)
 	go func() {
@@ -142,7 +143,11 @@ func (w *Watch) close(r io.Reader) {
 	}
 }
 
+// Primer builds a list of resources sent to the watcher.
 type Primer = gin.HandlerFunc
+
+// EventBuilder builds an event for the specified resource id.
+type EventBuilder func(id uint, method string, w io.Writer) error
 
 // WatchHandler handler.
 type WatchHandler struct {
@@ -153,7 +158,7 @@ type WatchHandler struct {
 }
 
 // Add a watch.
-func (h *WatchHandler) Add(ctx *gin.Context, primer Primer) {
+func (h *WatchHandler) Add(ctx *gin.Context, primer Primer, builder EventBuilder) {
 	collection, err := h.collection(ctx, "")
 	if err != nil {
 		_ = ctx.Error(err)
@@ -170,6 +175,7 @@ func (h *WatchHandler) Add(ctx *gin.Context, primer Primer) {
 		writer:     ctx.Writer,
 		collection: collection,
 		primer:     primer,
+		builder:    builder,
 	}
 	err = h.upgrade(ctx, w)
 	if err != nil {
@@ -259,7 +265,7 @@ func (h *WatchHandler) object(ctx *gin.Context) (object any) {
 	return
 }
 
-// pipedEncoder returns list of io.Writer.
+// pipedEncoder json encodes the object and returns list of io.Reader.
 func (h *WatchHandler) pipedEncoder(method string, object any, n int) (r []io.Reader) {
 	mux := &PipeMux{}
 	for i := 0; i < n; i++ {
@@ -273,6 +279,25 @@ func (h *WatchHandler) pipedEncoder(method string, object any, n int) (r []io.Re
 				Method: method,
 				Object: object,
 			})
+		if err != nil {
+			_ = mux.CloseWithError(err)
+		} else {
+			_ = mux.Close()
+		}
+	}()
+	r = mux.Readers()
+	return
+}
+
+// pipedBuilder writes an event returns list of io.Reader.
+func (h *WatchHandler) pipedBuilder(method string, id uint, builder EventBuilder, n int) (r []io.Reader) {
+	mux := &PipeMux{}
+	for i := 0; i < n; i++ {
+		pr, pw := Pipe()
+		mux.Add(pr, pw)
+	}
+	go func() {
+		err := builder(id, method, mux)
 		if err != nil {
 			_ = mux.CloseWithError(err)
 		} else {
@@ -396,9 +421,20 @@ func (h *WatchHandler) snapshot(ctx *gin.Context, afterId uint, w *Watch) (err e
 	case reflect.Slice:
 		bv := reflect.ValueOf(body)
 		for i := 0; i < bv.Len(); i++ {
-			object := bv.Index(i).Interface()
-			pr := h.pipedEncoder(method, object, 1)
-			w.send(pr[0])
+			r := bv.Index(i)
+			r = r.Addr()
+			object := r.Interface()
+			builder := w.builder
+			if builder != nil {
+				id := h.getId(object)
+				if id > 0 {
+					pr := h.pipedBuilder(method, id, builder, 1)
+					w.send(pr[0])
+				}
+			} else {
+				pr := h.pipedEncoder(method, object, 1)
+				w.send(pr[0])
+			}
 		}
 	default:
 	}
@@ -428,6 +464,14 @@ func (h *WatchHandler) collection(ctx *gin.Context, method string) (kind string,
 	slices.Reverse(part)
 	kind = part[p]
 	kind = strings.ToLower(kind)
+	return
+}
+
+func (h *WatchHandler) getId(object any) (id uint) {
+	r, cast := object.(interface{ Id() uint })
+	if cast {
+		id = r.Id()
+	}
 	return
 }
 
@@ -461,7 +505,9 @@ func (r *PipeReader) Read(b []byte) (n int, err error) {
 func (r *PipeReader) Close() (err error) {
 	defer func() {
 		r := recover()
-		err, _ = r.(error)
+		if r != nil {
+			err, _ = r.(error)
+		}
 	}()
 	close(r.closed)
 	return
@@ -480,7 +526,9 @@ type PipeWriter struct {
 func (w *PipeWriter) Write(b []byte) (n int, err error) {
 	defer func() {
 		r := recover()
-		err, _ = r.(error)
+		if r != nil {
+			err, _ = r.(error)
+		}
 	}()
 	blocked := 0
 	day := 86400
@@ -493,6 +541,7 @@ func (w *PipeWriter) Write(b []byte) (n int, err error) {
 		case w.output <- p:
 			blocked = 0
 		case <-time.After(time.Second):
+			Log.Info("BLOCKED")
 			blocked++
 			if blocked > day {
 				err = liberr.New("peer not reading.")
@@ -519,7 +568,9 @@ func (w *PipeWriter) Close() (err error) {
 func (w *PipeWriter) CloseWithError(errIn error) (err error) {
 	defer func() {
 		r := recover()
-		err, _ = r.(error)
+		if r != nil {
+			err, _ = r.(error)
+		}
 	}()
 	w.output <- Packet{err: errIn}
 	err = w.Close()

@@ -2228,6 +2228,38 @@ func (r *AnalysisWriter) Write(id uint, output io.Writer) (err error) {
 	return
 }
 
+// Event the analysis file.
+func (r *AnalysisWriter) Event(id uint, method string, output io.Writer) (err error) {
+	m := &model.Analysis{}
+	db := r.db()
+	err = db.First(m, id).Error
+	if err != nil {
+		return
+	}
+	en := &jsonEncoder{output: output}
+	en.begin()
+	en.field("method")
+	en.writeStr(method)
+	en.field("object")
+	en.begin()
+	r.encoder = &jsonEncoder{output: output}
+	r.begin()
+	rx := &Analysis{}
+	rx.With(m)
+	r.embed(rx)
+	err = r.addIssues(m)
+	if err != nil {
+		return
+	}
+	err = r.addDeps(m)
+	if err != nil {
+		return
+	}
+	r.end()
+	en.end()
+	return
+}
+
 // newEncoder returns an encoder.
 func (r *AnalysisWriter) newEncoder(output io.Writer) (encoder encoder, err error) {
 	accepted := r.ctx.NegotiateFormat(BindMIMEs...)

@@ -97,13 +97,12 @@ func (h ApplicationHandler) AddRoutes(e *gin.Engine) {
 		AppWatchRoot,
 		func(ctx *gin.Context) {
 			h.Watch(ctx, ApplicationHandler{}.List)
-
 		})
 	routeGroup.GET(
 		AppAnalysisWatchRoot,
 		func(ctx *gin.Context) {
-			h.Watch(ctx, AnalysisHandler{}.List)
-
+			builder := &AnalysisWriter{ctx: ctx}
+			h.Watch(ctx, AnalysisHandler{}.List, builder.Event)
 		})
 }
 

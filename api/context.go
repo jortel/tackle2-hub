@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"net"
 	"net/http"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/konveyor/tackle2-hub/auth"
@@ -53,6 +54,8 @@ func (r *Context) Respond(status int, body interface{}) {
 // Fake returns a fake context.
 func (r *Context) Fake() (fake *gin.Context) {
 	fake = &gin.Context{}
+	fake.Request = &http.Request{}
+	fake.Request.URL = &url.URL{}
 	fake.Writer = &ResponseWriter{}
 	rtx := WithContext(fake)
 	rtx.DB = r.DB

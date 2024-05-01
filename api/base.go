@@ -279,9 +279,13 @@ func (h *BaseHandler) Attachment(ctx *gin.Context, name string) {
 }
 
 // Watch adds a watch.
-func (h *BaseHandler) Watch(ctx *gin.Context, primer Primer) {
+func (h *BaseHandler) Watch(ctx *gin.Context, primer Primer, builder ...EventBuilder) {
 	rtx := WithContext(ctx)
-	rtx.Watch.Add(ctx, primer)
+	if len(builder) > 0 {
+		rtx.Watch.Add(ctx, primer, builder[0])
+	} else {
+		rtx.Watch.Add(ctx, primer, nil)
+	}
 }
 
 // REST resource.
@@ -290,6 +294,10 @@ type Resource struct {
 	CreateUser string    `json:"createUser" yaml:"createUser,omitempty"`
 	UpdateUser string    `json:"updateUser" yaml:"updateUser,omitempty"`
 	CreateTime time.Time `json:"createTime" yaml:"createTime,omitempty"`
+}
+
+func (r *Resource) Id() (id uint) {
+	return r.ID
 }
 
 // With updates the resource with the model.
@@ -338,6 +346,10 @@ func (r *Resource) nameOf(m interface{}) (name string) {
 type Ref struct {
 	ID   uint   `json:"id" binding:"required"`
 	Name string `json:"name,omitempty"`
+}
+
+func (r *Ref) Id() (id uint) {
+	return r.ID
 }
 
 // With id and named model.
