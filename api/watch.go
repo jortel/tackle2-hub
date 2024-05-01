@@ -72,7 +72,7 @@ func (w *Watch) send(reader io.Reader) {
 }
 
 //  begin forwarding events.
-func (w *Watch) begin() {
+func (w *Watch) run() {
 	w.done = make(chan int, 100)
 	go func() {
 		drain := false
@@ -81,7 +81,7 @@ func (w *Watch) begin() {
 			Log.Info("Watch ended.", "id", w.id)
 			w.done <- 0
 		}()
-		next := func(reader io.Reader) (end bool) {
+		push := func(reader io.Reader) (end bool) {
 			defer w.close(reader)
 			if reader == nil {
 				end = true
@@ -124,7 +124,7 @@ func (w *Watch) begin() {
 		}
 		for {
 			reader := <-w.queue
-			end := next(reader)
+			end := push(reader)
 			if end {
 				w.done <- 0
 				break
@@ -178,7 +178,7 @@ func (h *WatchHandler) Add(ctx *gin.Context, primer Primer) {
 	hdr := ctx.Writer.Header()
 	hdr.Set("Connection", "Keep-Alive")
 	ctx.Status(http.StatusOK)
-	w.begin()
+	w.run()
 	err = h.snapshot(ctx, afterId, w)
 	if err != nil {
 		_ = ctx.Error(err)
@@ -214,13 +214,21 @@ func (h *WatchHandler) Publish(ctx *gin.Context) {
 	if len(h.Watches) == 0 {
 		return
 	}
-	rtx := WithContext(ctx)
-	object := rtx.Response.Body
 	method := ctx.Request.Method
 	collection, err := h.collection(ctx, method)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
+	}
+	rtx := WithContext(ctx)
+	object := rtx.Response.Body
+	if object == nil {
+		id := h.pk(ctx)
+		if id > 0 {
+			object = Ref{ID: id}
+		} else {
+			return
+		}
 	}
 	h.mutex.Lock()
 	watches := make([]*Watch, len(h.Watches))
