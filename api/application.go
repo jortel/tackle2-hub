@@ -103,9 +103,9 @@ func (h ApplicationHandler) AddRoutes(e *gin.Engine) {
 		AppAnalysisWatchRoot,
 		func(ctx *gin.Context) {
 			rtx := WithContext(ctx)
-			fake := rtx.Fake()
+			ctx = rtx.Fake()
 			builder := func(id uint, m string, w io.Writer) (err error) {
-				b := &AnalysisWriter{ctx: fake}
+				b := &AnalysisWriter{ctx: ctx}
 				err = b.Event(id, m, w)
 				return
 			}
