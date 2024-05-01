@@ -142,11 +142,13 @@ func (w *Watch) close(r io.Reader) {
 	}
 }
 
-// Primer builds a list of resources sent to the watcher.
-type Primer = gin.HandlerFunc
+// Primer fetches resources and stores in the
+// (rich) context.Response.Body.
+type Primer = func(ctx *gin.Context)
 
-// EventBuilder builds an event for the specified resource id.
-type EventBuilder func(id uint, method string, w io.Writer) error
+// EventBuilder fetches a resource by id and writes
+// a json encoded event to the writer.
+type EventBuilder func(id uint, method string, writer io.Writer) error
 
 // WatchHandler handler.
 type WatchHandler struct {

@@ -105,9 +105,7 @@ func (h ApplicationHandler) AddRoutes(e *gin.Engine) {
 			rtx := WithContext(ctx)
 			fake := rtx.Fake()
 			builder := func(id uint, m string, w io.Writer) (err error) {
-				b := &AnalysisWriter{
-					ctx: fake,
-				}
+				b := &AnalysisWriter{ctx: fake}
 				err = b.Event(id, m, w)
 				return
 			}
