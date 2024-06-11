@@ -1745,7 +1745,9 @@ func (k *Cluster) getPods() (err error) {
 	}
 	for i := range list.Items {
 		r := &list.Items[i]
-		k.pods[r.Name] = r
+		if r.DeletionTimestamp == nil {
+			k.pods[r.Name] = r
+		}
 	}
 	return
 }
