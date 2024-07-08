@@ -18,7 +18,7 @@ type Application struct {
 	Binary            string
 	Facts             []Fact `gorm:"constraint:OnDelete:CASCADE"`
 	Comments          string
-	Tasks             []Task     `gorm:"constraint:OnDelete:CASCADE"`
+	Tasks             []Task     `gorm:"constraint:OnDelete:SET Deleted=datetime()"`
 	Tags              []Tag      `gorm:"many2many:ApplicationTags"`
 	Identities        []Identity `gorm:"many2many:ApplicationIdentity;constraint:OnDelete:CASCADE"`
 	BusinessServiceID *uint      `gorm:"index"`

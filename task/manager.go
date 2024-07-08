@@ -45,6 +45,7 @@ const (
 	Succeeded    = "Succeeded"
 	Failed       = "Failed"
 	Canceled     = "Canceled"
+	Deleted      = "Deleted"
 )
 
 // Events
@@ -94,13 +95,10 @@ type Manager struct {
 	Scopes []string
 	// cluster resources.
 	cluster Cluster
-	// queue of actions.
-	queue chan func()
 }
 
 // Run the manager.
 func (m *Manager) Run(ctx context.Context) {
-	m.queue = make(chan func(), 100)
 	m.cluster.Client = m.Client
 	auth.Validators = append(
 		auth.Validators,
@@ -118,7 +116,8 @@ func (m *Manager) Run(ctx context.Context) {
 				err := m.cluster.Refresh()
 				if err == nil {
 					m.deleteOrphanPods()
-					m.runActions()
+					m.delete()
+					m.cancel()
 					m.updateRunning()
 					m.startReady()
 					m.pause()
@@ -221,59 +220,53 @@ func (m *Manager) Update(db *gorm.DB, requested *Task) (err error) {
 }
 
 // Delete a task.
+// Flow:
+// - Task.deleted = true.
+// - (pod deleted requested)
+// - Task.State = Deleted
+// - (pod deleted)
+// - task deleted.
 func (m *Manager) Delete(db *gorm.DB, id uint) (err error) {
 	task := &Task{}
 	err = db.First(task, id).Error
 	if err != nil {
 		return
 	}
-	m.action(
-		func() (err error) {
-			err = task.Delete(m.Client)
-			if err != nil {
-				return
-			}
-			err = m.DB.Delete(task).Error
-			return
-		})
+	task.Deleted = true
+	err = db.Save(task).Error
+	if err != nil {
+		return
+	}
 	return
 }
 
 // Cancel a task.
+// Flow:
+// - Task.canceled = true.
+// - (pod deleted requested)
+// - Task.State = Canceled
+// - (pod deleted)
+// - Task.Pod = ""
 func (m *Manager) Cancel(db *gorm.DB, id uint) (err error) {
 	task := &Task{}
 	err = db.First(task, id).Error
 	if err != nil {
 		return
 	}
-	m.action(
-		func() (err error) {
-			switch task.State {
-			case Succeeded,
-				Failed,
-				Canceled:
-				// discarded.
-				return
-			default:
-			}
-			pod, found := m.cluster.Pod(path.Base(task.Pod))
-			if found {
-				snErr := m.podSnapshot(task, pod)
-				Log.Error(
-					snErr,
-					"Snapshot not created.")
-			}
-			err = task.Cancel(m.Client)
-			if err != nil {
-				return
-			}
-			err = m.DB.Save(task).Error
-			if err != nil {
-				err = liberr.Wrap(err)
-				return
-			}
-			return
-		})
+	switch task.State {
+	case Succeeded,
+		Failed,
+		Canceled,
+		Deleted:
+		// ignored.
+		return
+	default:
+	}
+	task.Canceled = true
+	err = db.Save(task).Error
+	if err != nil {
+		return
+	}
 	return
 }
 
@@ -283,34 +276,80 @@ func (m *Manager) pause() {
 	time.Sleep(d)
 }
 
-// action enqueues an asynchronous action.
-func (m *Manager) action(action func() error) {
-	m.queue <- func() {
-		var err error
-		defer func() {
-			p := recover()
-			if p != nil {
-				if pErr, cast := p.(error); cast {
-					err = pErr
-				}
-			}
-			if err != nil {
-				Log.Error(err, "Action failed.")
-			}
-		}()
-		err = action()
+// delete tasks marked as deleted.
+func (m *Manager) delete() {
+	fetched := []*Task{}
+	err := m.DB.Find(&fetched, "deleted", true).Error
+	if err != nil {
+		Log.Error(err, "")
+		return
 	}
-	return
+	for _, task := range fetched {
+		if task.State != Deleted {
+			err = task.Delete(m.Client)
+			if err != nil {
+				Log.Error(err, "")
+			}
+			err = m.DB.Save(task).Error
+			if err != nil {
+				err = liberr.Wrap(err)
+				return
+			}
+			continue
+		}
+		if _, found := m.cluster.Pod(path.Base(task.Pod)); found {
+			continue
+		}
+		err = m.DB.Delete(task).Error
+		if err != nil {
+			Log.Error(err, "")
+		}
+	}
 }
 
-// runActions executes queued actions.
-func (m *Manager) runActions() {
-	d := time.Millisecond * 10
-	for {
-		select {
-		case action := <-m.queue:
-			action()
-		case <-time.After(d):
+// cancel tasks marked as canceled.
+func (m *Manager) cancel() {
+	fetched := []*Task{}
+	db := m.DB.Where("canceled", true)
+	db = m.DB.Where("deleted", false)
+	db = db.Where(
+		"state not in ?",
+		[]string{
+			Succeeded,
+			Failed,
+			Deleted,
+		})
+	err := db.Find(&fetched).Error
+	if err != nil {
+		return
+	}
+	for _, task := range fetched {
+		if task.State != Canceled {
+			pod, found := m.cluster.Pod(path.Base(task.Pod))
+			if found {
+				snErr := m.podSnapshot(task, pod)
+				Log.Error(
+					snErr,
+					"Snapshot not created.")
+			}
+			err = task.Cancel(m.Client)
+			if err != nil {
+				Log.Error(err, "")
+			}
+			err = m.DB.Save(task).Error
+			if err != nil {
+				err = liberr.Wrap(err)
+				return
+			}
+			continue
+		}
+		if _, found := m.cluster.Pod(path.Base(task.Pod)); found {
+			continue
+		}
+		task.Pod = ""
+		err = m.DB.Save(task).Error
+		if err != nil {
+			err = liberr.Wrap(err)
 			return
 		}
 	}
@@ -324,6 +363,8 @@ func (m *Manager) startReady() {
 	}()
 	fetched := []*model.Task{}
 	db := m.DB.Order("priority DESC, id")
+	db = db.Where("deleted", false)
+	db = db.Where("canceled", false)
 	result := db.Find(
 		&fetched,
 		"state IN ?",
@@ -809,6 +850,8 @@ func (m *Manager) updateRunning() {
 	}()
 	fetched := []*model.Task{}
 	db := m.DB.Order("priority DESC, id")
+	db = db.Where("deleted", false)
+	db = db.Where("canceled", false)
 	result := db.Find(
 		&fetched,
 		"state IN ?",
@@ -1233,7 +1276,9 @@ func (r *Task) Reflect(cluster *Cluster) (pod *core.Pod, found bool) {
 
 // Delete the associated pod as needed.
 func (r *Task) Delete(client k8s.Client) (err error) {
-	if r.Pod == "" {
+	mark := time.Now()
+	if r.Pod == "" || r.State == Deleted {
+		r.Terminated = &mark
 		return
 	}
 	pod := &core.Pod{}
@@ -1248,7 +1293,8 @@ func (r *Task) Delete(client k8s.Client) (err error) {
 			err = nil
 		}
 	}
-	r.Pod = ""
+	r.Terminated = &mark
+	r.State = Deleted
 	r.Event(PodDeleted, r.Pod)
 	Log.Info(
 		"Task pod deleted.",
@@ -1256,8 +1302,35 @@ func (r *Task) Delete(client k8s.Client) (err error) {
 		r.ID,
 		"pod",
 		pod.Name)
+	return
+}
+
+// Cancel the task.
+func (r *Task) Cancel(client k8s.Client) (err error) {
 	mark := time.Now()
-	r.Terminated = &mark
+	if r.Pod == "" || r.State == Canceled {
+		r.Terminated = &mark
+		return
+	}
+	pod := &core.Pod{}
+	pod.Namespace = path.Dir(r.Pod)
+	pod.Name = path.Base(r.Pod)
+	err = client.Delete(context.TODO(), pod, k8s.GracePeriodSeconds(0))
+	if err != nil {
+		if !k8serr.IsNotFound(err) {
+			err = liberr.Wrap(err)
+			return
+		} else {
+			err = nil
+		}
+	}
+	r.State = Canceled
+	r.Event(Canceled)
+	r.SetBucket(nil)
+	Log.Info(
+		"Task canceled.",
+		"id",
+		r.ID)
 	return
 }
 
@@ -1300,22 +1373,6 @@ func (r *Task) podPending(pod *core.Pod) {
 		r.Event(PodRunning)
 		r.State = Running
 	}
-}
-
-// Cancel the task.
-func (r *Task) Cancel(client k8s.Client) (err error) {
-	err = r.Delete(client)
-	if err != nil {
-		return
-	}
-	r.State = Canceled
-	r.Event(Canceled)
-	r.SetBucket(nil)
-	Log.Info(
-		"Task canceled.",
-		"id",
-		r.ID)
-	return
 }
 
 // podRunning handles pod running.
