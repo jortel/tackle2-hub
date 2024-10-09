@@ -12,6 +12,7 @@ const (
 	EnvDbSeedPath              = "DB_SEED_PATH"
 	EnvBucketPath              = "BUCKET_PATH"
 	EnvRwxSupported            = "RWX_SUPPORTED"
+	EnvAddonPath               = "ADDON_PATH"
 	EnvCachePath               = "CACHE_PATH"
 	EnvCachePvc                = "CACHE_PVC"
 	EnvSharedPath              = "SHARED_PATH"
@@ -56,6 +57,10 @@ type Hub struct {
 	// File settings.
 	File struct {
 		TTL int
+	}
+	// Addon settings
+	Addon struct {
+		Path string
 	}
 	// Cache settings.
 	Cache struct {
@@ -139,6 +144,10 @@ func (r *Hub) Load() (err error) {
 	if found {
 		b, _ := strconv.ParseBool(s)
 		r.Cache.RWX = b
+	}
+	r.Addon.Path, found = os.LookupEnv(EnvAddonPath)
+	if !found {
+		r.Addon.Path = "/addon"
 	}
 	r.Cache.PVC, found = os.LookupEnv(EnvCachePvc)
 	if !found {
