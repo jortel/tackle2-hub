@@ -1,0 +1,78 @@
+diff -ruN '--exclude=mod.patch' migration/v16/model/core.go migration/v17/model/core.go
+--- migration/v16/model/core.go	2025-04-16 13:46:31.935122125 -0500
++++ migration/v17/model/core.go	2025-04-18 12:38:17.754162203 -0500
+@@ -267,6 +267,63 @@
+ 	return
+ }
+ 
++type Secret struct {
++	Model
++	Content json.Map `gorm:"type:json;serializer:json"`
++}
++
++func (r *Secret) Encrypt() (err error) {
++	passphrase := Settings.Encryption.Passphrase
++	en := encryption.New(passphrase)
++	var fn func(json.Map) json.Map
++	fn = func(in json.Map) (out json.Map) {
++		out = json.Map{}
++		for k, v := range in {
++			switch object := v.(type) {
++			case string:
++				v, err = en.Encrypt(object)
++				if err != nil {
++					err = liberr.Wrap(err)
++					return
++				}
++			case json.Map:
++				v = fn(object)
++			default:
++			}
++			out[k] = v
++		}
++		return
++	}
++	r.Content = fn(r.Content)
++	return
++}
++
++func (r *Secret) Decrypt() (err error) {
++	passphrase := Settings.Encryption.Passphrase
++	en := encryption.New(passphrase)
++	var fn func(json.Map) json.Map
++	fn = func(in json.Map) (out json.Map) {
++		out = json.Map{}
++		for k, v := range in {
++			switch object := v.(type) {
++			case string:
++				v, err = en.Decrypt(object)
++				if err != nil {
++					err = liberr.Wrap(err)
++					return
++				}
++			case json.Map:
++				v = fn(object)
++			default:
++			}
++			out[k] = v
++		}
++		return
++	}
++	r.Content = fn(r.Content)
++	return
++}
++
+ //
+ // JSON Fields.
+ //
+diff -ruN '--exclude=mod.patch' migration/v16/model/pkg.go migration/v17/model/pkg.go
+--- migration/v16/model/pkg.go	2025-04-16 13:46:31.935122125 -0500
++++ migration/v17/model/pkg.go	2025-04-18 12:14:42.839199083 -0500
+@@ -38,6 +38,7 @@
+ 		Setting{},
+ 		RuleSet{},
+ 		Rule{},
++		Secret{},
+ 		Stakeholder{},
+ 		StakeholderGroup{},
+ 		Tag{},
