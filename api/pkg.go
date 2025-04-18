@@ -77,6 +77,7 @@ func All() []Handler {
 		&ReviewHandler{},
 		&RuleSetHandler{},
 		&SchemaHandler{},
+		&SecretHandler{},
 		&SettingHandler{},
 		&ServiceHandler{},
 		&StakeholderHandler{},

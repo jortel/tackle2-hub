@@ -2,7 +2,7 @@ package model
 
 import (
 	"github.com/konveyor/tackle2-hub/migration/json"
-	"github.com/konveyor/tackle2-hub/migration/v16/model"
+	"github.com/konveyor/tackle2-hub/migration/v17/model"
 )
 
 // Field (data) types.
@@ -35,6 +35,7 @@ type PK = model.PK
 type Proxy = model.Proxy
 type Questionnaire = model.Questionnaire
 type Review = model.Review
+type Secret = model.Secret
 type Setting = model.Setting
 type RuleSet = model.RuleSet
 type Rule = model.Rule
