@@ -942,7 +942,11 @@ func (m *Manager) deleteZombies() {
 		}
 	}
 	fetched := []*Task{}
-	db := m.DB.Select("Events")
+	db := m.DB.Select(
+		"ID",
+		"Pod",
+		"Events",
+	)
 	db = db.Where("Pod", pods)
 	db = db.Where("state IN ?",
 		[]string{
