@@ -110,7 +110,7 @@ func (h ApplicationHandler) Get(ctx *gin.Context) {
 		_ = ctx.Error(result.Error)
 		return
 	}
-	tagMap, err := h.tagMap(ctx, []model.Application{*m})
+	tagMap, err := h.tagMap(ctx, []uint{id})
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -145,18 +145,30 @@ func (h ApplicationHandler) Get(ctx *gin.Context) {
 // @success 200 {object} []api.Application
 // @router /applications [get]
 func (h ApplicationHandler) List(ctx *gin.Context) {
-	var list []model.Application
-	db := h.preLoad(h.DB(ctx), clause.Associations)
-	result := db.Find(&list)
-	if result.Error != nil {
-		_ = ctx.Error(result.Error)
-		return
+	type M struct {
+		*model.Application
+		BusinessServiceID   uint
+		BusinessServiceName string
+		IdentityID          uint
+		IdentityName        string
 	}
-	tagMap, err := h.tagMap(ctx, list)
-	if err != nil {
-		_ = ctx.Error(err)
-		return
-	}
+	db := h.DB(ctx)
+	db = db.Select(
+		"a.*",
+		"bs.Name  BusinessServiceName",
+		"id.ID IdentityID",
+		"id.Name IdentityName",
+	)
+	db = db.Table("Application a")
+	db = db.Joins("LEFT JOIN Bucket b ON b.ID = a.BucketID")
+	db = db.Joins("LEFT JOIN ApplicationIdentity ai ON ai.ApplicationID = a.ID")
+	db = db.Joins("LEFT JOIN Identity id ON id.ID = ai.IdentityID")
+	db = db.Joins("LEFT JOIN BusinessService bs ON bs.ID = a.BusinessServiceID")
+	db = db.Order("a.ID")
+	page := Page{}
+	page.With(ctx)
+	cursor := Cursor{}
+	cursor.With(db, page)
 	questionnaire, err := assessment.NewQuestionnaireResolver(h.DB(ctx))
 	if err != nil {
 		_ = ctx.Error(err)
@@ -168,21 +180,54 @@ func (h ApplicationHandler) List(ctx *gin.Context) {
 		_ = ctx.Error(err)
 		return
 	}
-	resources := []Application{}
-	for i := range list {
-		m := &list[i]
-		resolver := assessment.NewApplicationResolver(&list[i], tagsResolver, membership, questionnaire)
+	tagMap, err := h.tagMap(ctx, nil)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	builder := func(batch []any) (out any, err error) {
+		app := &model.Application{}
+		for i := range batch {
+			m := batch[i].(*M)
+			if i == 0 {
+				app = m.Application
+				if app.BusinessServiceID != nil {
+					app.BusinessService = &model.BusinessService{}
+					app.BusinessService.ID = *app.BusinessServiceID
+					app.BusinessService.Name = m.BusinessServiceName
+				}
+			}
+			if m.IdentityID > 0 {
+				identity := model.Identity{}
+				identity.ID = m.IdentityID
+				identity.Name = m.IdentityName
+				app.Identities = append(
+					app.Identities,
+					identity)
+			}
+		}
+		resolver := assessment.NewApplicationResolver(
+			app,
+			tagsResolver,
+			membership,
+			questionnaire)
 		r := Application{}
-		r.With(m, tagMap[m.ID])
+		r.With(app, tagMap[app.ID])
 		err = r.WithResolver(resolver)
 		if err != nil {
 			_ = ctx.Error(err)
 			return
 		}
-		resources = append(resources, r)
+		out = r
+		return
 	}
-
-	h.Respond(ctx, http.StatusOK, resources)
+	iter := Iterator{
+		Cursor:  &cursor,
+		Model:   &M{},
+		Builder: []Builder{builder},
+	}
+	h.Respond(ctx, http.StatusOK, iter)
 }
 
 // Create godoc
@@ -221,11 +266,13 @@ func (h ApplicationHandler) Create(ctx *gin.Context) {
 		return
 	}
 
-	tags := []model.ApplicationTag{}
+	tags := []AppTag{}
 	if len(r.Tags) > 0 {
 		for _, t := range r.Tags {
 			if !t.Virtual {
-				tags = append(tags, model.ApplicationTag{TagID: t.ID, ApplicationID: m.ID, Source: t.Source})
+				appTag := AppTag{}
+				appTag.withRef(&t)
+				tags = append(tags, appTag)
 			}
 		}
 		result = h.DB(ctx).Create(&tags)
@@ -1100,25 +1147,38 @@ func (h ApplicationHandler) AssessmentCreate(ctx *gin.Context) {
 	h.Respond(ctx, http.StatusCreated, r)
 }
 
-// tagMap returns a map of applicationTags indexed by application id.
+// tagMap returns a map of AppTag indexed by application id.
+// This is a performance and memory optimization.
 func (h *ApplicationHandler) tagMap(
 	ctx *gin.Context,
-	applications []model.Application) (mp map[uint][]model.ApplicationTag, err error) {
-	ids := []uint{}
-	for i := range applications {
-		m := &applications[i]
-		ids = append(ids, m.ID)
-	}
-	mp = make(map[uint][]model.ApplicationTag)
-	list := []model.ApplicationTag{}
+	appIds []uint) (mp TagMap, err error) {
+	tagCache := make(map[uint]*model.Tag)
+	var tags []*model.Tag
 	db := h.DB(ctx)
-	db = db.Joins("Tag")
-	err = db.Find(&list, "ApplicationID", ids).Error
+	err = db.Find(&tags).Error
 	if err != nil {
 		return
 	}
-	for _, m := range list {
-		mp[m.ApplicationID] = append(mp[m.ApplicationID], m)
+	for _, tag := range tags {
+		tagCache[tag.ID] = tag
+	}
+	mp = make(TagMap)
+	var appTags []AppTag
+	db = h.DB(ctx)
+	db = db.Omit(clause.Associations)
+	db = db.Table("ApplicationTags")
+	if len(appIds) > 0 {
+		db = db.Where("ApplicationID", appIds)
+	}
+	err = db.Find(&appTags).Error
+	if err != nil {
+		return
+	}
+	for _, m := range appTags {
+		m.Tag = tagCache[m.TagID]
+		mp[m.ApplicationID] = append(
+			mp[m.ApplicationID],
+			m)
 	}
 	return
 }
@@ -1148,7 +1208,7 @@ type Application struct {
 }
 
 // With updates the resource using the model.
-func (r *Application) With(m *model.Application, tags []model.ApplicationTag) {
+func (r *Application) With(m *model.Application, tags []AppTag) {
 	r.Resource.With(&m.Model)
 	r.Name = m.Name
 	r.Description = m.Description
@@ -1398,4 +1458,26 @@ func (r *Stakeholders) contributors() (contributors []model.Stakeholder) {
 			})
 	}
 	return
+}
+
+type TagMap map[uint][]AppTag
+
+// AppTag is a lightweight representation of ApplicationTag model.
+type AppTag struct {
+	ApplicationID uint
+	TagID         uint
+	Source        string
+	Tag           *model.Tag
+}
+
+func (r *AppTag) with(m *model.ApplicationTag) {
+	r.ApplicationID = m.ApplicationID
+	r.Source = m.Source
+	r.Tag = &m.Tag
+}
+
+func (r *AppTag) withRef(m *TagRef) {
+	r.Source = m.Source
+	r.Tag = &model.Tag{}
+	r.Tag.ID = m.ID
 }
