@@ -31,6 +31,7 @@ const (
 	EnvTaskReapFailed          = "TASK_REAP_FAILED"
 	EnvTaskPodRetainSucceeded  = "TASK_POD_RETAIN_SUCCEEDED"
 	EnvTaskPodRetainFailed     = "TASK_POD_RETAIN_FAILED"
+	EnvTaskPodQuota            = "TASK_POD_QUOTA"
 	EnvTaskSA                  = "TASK_SA"
 	EnvTaskRetries             = "TASK_RETRIES"
 	EnvTaskPreemptEnabled      = "TASK_PREEMPT_ENABLED"
@@ -50,6 +51,10 @@ const (
 	EnvAnalysisReportPath      = "ANALYSIS_REPORT_PATH"
 	EnvAnalysisArchiverEnabled = "ANALYSIS_ARCHIVER_ENABLED"
 	EnvDiscoveryLabel          = "DISCOVERY_LABEL"
+	EnvDebugMigration          = "DEBUG_MIGRATION"
+	EnvDebugWeb                = "DEBUG_WEB"
+	EnvDebugReaper             = "DEBUG_REAPER"
+	EnvDebugTask               = "DEBUG_TASK"
 )
 
 type Hub struct {
@@ -109,6 +114,7 @@ type Hub struct {
 			Rate      int
 		}
 		Pod struct {
+			Quota     int
 			Retention struct {
 				Succeeded int
 				Failed    int
@@ -136,6 +142,13 @@ type Hub struct {
 	// Discovery settings.
 	Discovery struct {
 		Label string
+	}
+	// Debug settings
+	Debug struct {
+		Migration bool
+		Web       bool
+		Reaper    bool
+		Task      bool
 	}
 }
 
@@ -243,6 +256,13 @@ func (r *Hub) Load() (err error) {
 		r.Task.Reaper.Failed = n
 	} else {
 		r.Task.Reaper.Failed = 43200 // 720 hours (30 days).
+	}
+	s, found = os.LookupEnv(EnvTaskPodQuota)
+	if found {
+		n, _ := strconv.Atoi(s)
+		r.Task.Pod.Quota = n
+	} else {
+		r.Task.Pod.Quota = 250 // 0=unlimited
 	}
 	s, found = os.LookupEnv(EnvTaskPodRetainSucceeded)
 	if found {
@@ -393,7 +413,26 @@ func (r *Hub) Load() (err error) {
 	} else {
 		r.Discovery.Label = "konveyor.io/discovery"
 	}
-
+	s, found = os.LookupEnv(EnvDebugMigration)
+	if found {
+		b, _ := strconv.ParseBool(s)
+		r.Debug.Migration = b
+	}
+	s, found = os.LookupEnv(EnvDebugWeb)
+	if found {
+		b, _ := strconv.ParseBool(s)
+		r.Debug.Web = b
+	}
+	s, found = os.LookupEnv(EnvDebugReaper)
+	if found {
+		b, _ := strconv.ParseBool(s)
+		r.Debug.Reaper = b
+	}
+	s, found = os.LookupEnv(EnvDebugTask)
+	if found {
+		b, _ := strconv.ParseBool(s)
+		r.Debug.Task = b
+	}
 	return
 }
 

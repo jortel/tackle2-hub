@@ -32,6 +32,9 @@ type Manager struct {
 
 // Run the manager.
 func (m *Manager) Run(ctx context.Context) {
+	if Settings.Debug.Reaper {
+		m.DB = m.DB.Debug()
+	}
 	registered := []Reaper{
 		&TaskReaper{
 			Client: m.Client,
@@ -55,9 +58,11 @@ func (m *Manager) Run(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			default:
+				mark := time.Now()
 				for _, r := range registered {
 					r.Run()
 				}
+				Log.Info("Duration: " + time.Since(mark).String())
 				m.pause()
 			}
 		}

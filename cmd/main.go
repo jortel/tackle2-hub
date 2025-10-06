@@ -124,7 +124,7 @@ func printHeap() {
 
 // main.
 func main() {
-	log.Info("Started", "settings", Settings)
+	log.Info("Started", "settings", Settings.String())
 	var err error
 	defer func() {
 		if err != nil {
@@ -170,7 +170,7 @@ func main() {
 	}
 	// Document migration.
 	jsdMigrator := migration.DocumentMigrator{
-		DB:     db.Debug(),
+		DB:     db,
 		Client: client,
 	}
 	err = jsdMigrator.Migrate(model.ALL)
