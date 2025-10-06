@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"fmt"
+	stdLog "log"
+	"os"
 	"time"
 
 	liberr "github.com/jortel/go-utils/error"
@@ -10,6 +12,7 @@ import (
 	"github.com/konveyor/tackle2-hub/settings"
 	pg "gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 var (
@@ -32,9 +35,20 @@ func Open(forMigration bool) (db *gorm.DB, err error) {
 		WithoutQuotingCheck:  true,
 		PreferSimpleProtocol: forMigration,
 	})
+	dbLogger := logger.New(
+		stdLog.New(os.Stdout, "\r\n", stdLog.LstdFlags),
+		logger.Config{
+			SlowThreshold:             time.Second,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+			ParameterizedQueries:      false,
+			Colorful:                  true,
+		},
+	)
 	db, err = open(
 		driver,
 		&gorm.Config{
+			Logger:          dbLogger,
 			PrepareStmt:     !forMigration,
 			CreateBatchSize: 500,
 		})

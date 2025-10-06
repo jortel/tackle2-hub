@@ -168,7 +168,7 @@ func (r *Hub) Load() (err error) {
 	}
 	r.DB.Host, found = os.LookupEnv(EnvDbHost)
 	if !found {
-		r.DB.Host = "f35a.redhat.com"
+		r.DB.Host = "tackle-postgres"
 	}
 	s, found := os.LookupEnv(EnvDbPort)
 	if found {
