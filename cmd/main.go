@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -104,8 +105,7 @@ func printHeap() {
 		}
 		for {
 			var m runtime.MemStats
-			// debug.SetGCPercent(50)
-			// runtime.GC()
+			runtime.GC()
 			runtime.ReadMemStats(&m)
 			memory := m.HeapSys - m.HeapReleased
 			reserved := m.HeapIdle - m.HeapReleased
@@ -131,6 +131,7 @@ func main() {
 			log.Error(err, "")
 		}
 	}()
+	debug.SetGCPercent(20)
 	syscall.Umask(0)
 	printHeap()
 	//
