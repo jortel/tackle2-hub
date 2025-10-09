@@ -47,7 +47,7 @@ func (r *TaskReaper) Run() {
 	list := []task.Task{}
 	result := r.DB.Find(
 		&list,
-		"state IN ? and reaped = 0",
+		"state IN ? and reaped = ?",
 		[]string{
 			task.Created,
 			task.Ready,
@@ -57,7 +57,8 @@ func (r *TaskReaper) Run() {
 			task.Succeeded,
 			task.Failed,
 			task.Canceled,
-		})
+		},
+		false)
 	Log.Error(result.Error, "")
 	if result.Error != nil {
 		return

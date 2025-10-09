@@ -124,10 +124,10 @@ func (r *MembershipResolver) cacheArchetypeMembers(db *gorm.DB) (err error) {
 		"a.id         AppId",
 		"t.id         TagId",
 		"t.name       TagName",
-		"t.categoryId CategoryId")
-	db = db.Table("application a")
-	db = db.Joins("JOIN applicationTags j ON j.applicationId = a.id")
-	db = db.Joins("JOIN tag t ON t.id = j.tagId")
+		"t.category_id CategoryId")
+	db = db.Table("applications a")
+	db = db.Joins("JOIN application_tags j ON j.application_id = a.id")
+	db = db.Joins("JOIN tags t ON t.id = j.tag_id")
 	db = db.Order("a.id")
 	cursor, err := db.Rows()
 	if err != nil {
