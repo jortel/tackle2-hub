@@ -36,8 +36,15 @@ RUN microdnf -y install \
   git \
   tar \
  && microdnf -y clean all
+
 RUN echo "hub:x:1001:0:hub:/:/sbin/nologin" >> /etc/passwd
-ENTRYPOINT ["/usr/local/bin/tackle-hub"]
+
+ENV TINI_VERSION=v0.19.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-amd64 /usr/bin/tini
+RUN chmod +x /usr/bin/tini
+
+
+ENTRYPOINT ["/usr/bin/tini", "--",  "/usr/local/bin/tackle-hub"]
 
 LABEL name="konveyor/tackle2-hub" \
       description="Konveyor Tackle - Hub" \
