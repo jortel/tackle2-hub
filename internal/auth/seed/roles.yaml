@@ -106,6 +106,10 @@
       verbs:
         - get
         - post
+    - name: llm-proxy
+      verbs:
+        - get
+        - post
     - name: manifests
       verbs:
         - delete
@@ -388,6 +392,10 @@
       verbs:
         - get
         - post
+    - name: llm-proxy
+      verbs:
+        - get
+        - post
     - name: manifests
       verbs:
         - delete
@@ -583,6 +591,10 @@
       verbs:
         - get
         - post
+    - name: llm-proxy
+      verbs:
+        - get
+        - post
     - name: manifests
       verbs:
         - get
@@ -729,6 +741,10 @@
       verbs:
         - get
     - name: kai
+      verbs:
+        - get
+        - post
+    - name: llm-proxy
       verbs:
         - get
         - post
