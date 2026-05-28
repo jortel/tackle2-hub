@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konveyor/tackle2-hub/internal/api/resource"
+	"github.com/konveyor/tackle2-hub/internal/auth"
 	"github.com/konveyor/tackle2-hub/shared/api"
 )
 
@@ -30,6 +31,16 @@ func (h ServiceHandler) AddRoutes(e *gin.Engine) {
 	routeGroup.GET(api.ServicesRoute, h.List)
 	routeGroup.Any(api.ServiceRoute, h.Required, h.Forward)
 	routeGroup.Any(api.ServiceNestedRoute, h.Required, h.Forward)
+	// The service route scope is resolved per-request (from the path), so
+	// unlike static routes it is not registered via Required(scope) at route
+	// setup. Register the scope of each enabled service here so it is part of
+	// the permission seed (Seed runs after AddRoutes); otherwise role grants
+	// for these scopes are dropped as "unknown scope" and every request 403s.
+	for name, route := range serviceRoutes {
+		if route != "" {
+			auth.RegisterScope(name)
+		}
+	}
 }
 
 // List godoc
