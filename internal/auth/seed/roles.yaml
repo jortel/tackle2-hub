@@ -19,6 +19,47 @@
     - name: adoptionplans
       verbs:
         - post
+    - name: agentic.agentruns
+      verbs:
+        - get
+        - post
+    - name: agentic.agentruns.acp
+      verbs:
+        - post
+    - name: agentic.agents
+      verbs:
+        - delete
+        - get
+        - post
+        - put
+    - name: agentic.gateways
+      verbs:
+        - delete
+        - get
+        - post
+        - put
+    - name: agentic.skillcollections
+      verbs:
+        - delete
+        - get
+        - post
+        - put
+    - name: agentic.skills
+      verbs:
+        - delete
+        - get
+        - post
+        - put
+    - name: agentic.workflowruns
+      verbs:
+        - get
+        - post
+    - name: agentic.workflows
+      verbs:
+        - delete
+        - get
+        - post
+        - put
     - name: analysis.profiles
       verbs:
         - delete
@@ -252,6 +293,32 @@
     - name: adoptionplans
       verbs:
         - post
+    - name: agentic.agentruns
+      verbs:
+        - get
+        - post
+    - name: agentic.agentruns.acp
+      verbs:
+        - post
+    - name: agentic.agents
+      verbs:
+        - get
+    - name: agentic.gateways
+      verbs:
+        - get
+    - name: agentic.skillcollections
+      verbs:
+        - get
+    - name: agentic.skills
+      verbs:
+        - get
+    - name: agentic.workflowruns
+      verbs:
+        - get
+        - post
+    - name: agentic.workflows
+      verbs:
+        - get
     - name: analysis.profiles
       verbs:
         - get
@@ -404,6 +471,27 @@
     - name: adoptionplans
       verbs:
         - post
+    - name: agentic.agentruns
+      verbs:
+        - get
+    - name: agentic.agents
+      verbs:
+        - get
+    - name: agentic.gateways
+      verbs:
+        - get
+    - name: agentic.skillcollections
+      verbs:
+        - get
+    - name: agentic.skills
+      verbs:
+        - get
+    - name: agentic.workflowruns
+      verbs:
+        - get
+    - name: agentic.workflows
+      verbs:
+        - get
     - name: analysis.profiles
       verbs:
         - get
